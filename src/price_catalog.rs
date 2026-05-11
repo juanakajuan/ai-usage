@@ -36,6 +36,51 @@ impl PriceCatalog {
             price_schedules: vec![
                 schedule(
                     "gpt-5.5",
+                    "2026-05-10",
+                    "5.000",
+                    "0.500",
+                    "5.000",
+                    "30.000",
+                    None,
+                ),
+                schedule(
+                    "gpt-5.4",
+                    "2026-05-10",
+                    "2.500",
+                    "0.250",
+                    "2.500",
+                    "15.000",
+                    None,
+                ),
+                schedule(
+                    "gpt-5.4-mini",
+                    "2026-05-10",
+                    "0.750",
+                    "0.075",
+                    "0.750",
+                    "4.500",
+                    None,
+                ),
+                schedule(
+                    "gpt-5.4-nano",
+                    "2026-05-10",
+                    "0.200",
+                    "0.020",
+                    "0.200",
+                    "1.250",
+                    None,
+                ),
+                schedule(
+                    "gpt-5.3-codex",
+                    "2026-05-10",
+                    "1.750",
+                    "0.175",
+                    "1.750",
+                    "14.000",
+                    None,
+                ),
+                schedule(
+                    "gpt-5.5",
                     "2026-01-01",
                     "1.250",
                     "0.125",
@@ -159,6 +204,42 @@ mod tests {
     }
 
     #[test]
+    fn current_standard_prices_match_bundled_flagship_catalog() {
+        let price_catalog = PriceCatalog::bundled();
+        let price_schedule = price_catalog
+            .effective_price_schedule(
+                "gpt-5.5",
+                Utc.with_ymd_and_hms(2026, 5, 10, 0, 0, 0).unwrap(),
+            )
+            .expect("gpt-5.5 price schedule");
+
+        assert_eq!(price_schedule.effective_date, date(2026, 5, 10));
+        assert_eq!(
+            price_schedule.input_tokens_per_million,
+            Decimal::from_str_exact("5.000").unwrap()
+        );
+        assert_eq!(
+            price_schedule.cache_read_tokens_per_million,
+            Decimal::from_str_exact("0.500").unwrap()
+        );
+        assert_eq!(
+            price_schedule.output_tokens_per_million,
+            Decimal::from_str_exact("30.000").unwrap()
+        );
+
+        let mini_price_schedule = price_catalog
+            .effective_price_schedule(
+                "gpt-5.4-mini",
+                Utc.with_ymd_and_hms(2026, 5, 10, 0, 0, 0).unwrap(),
+            )
+            .expect("gpt-5.4-mini price schedule");
+        assert_eq!(
+            mini_price_schedule.cache_read_tokens_per_million,
+            Decimal::from_str_exact("0.075").unwrap()
+        );
+    }
+
+    #[test]
     fn unknown_models_are_not_guessed() {
         let price_catalog = PriceCatalog::bundled();
         assert!(
@@ -190,5 +271,9 @@ mod tests {
                 )
                 .is_none()
         );
+    }
+
+    fn date(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).expect("valid test date")
     }
 }

@@ -32,7 +32,7 @@ fn json_output_redacts_paths_and_uses_custom_usage_source() {
 
     assert!(output.status.success());
     let json_output: Value = serde_json::from_slice(&output.stdout).expect("json output");
-    assert_eq!(json_output["output_schema_version"], 1);
+    assert_eq!(json_output["output_schema_version"], 2);
     assert_eq!(json_output["usage_source"]["is_custom"], true);
     assert_eq!(json_output["usage_source"]["path"], "~/codex-home/sessions");
     assert_eq!(
@@ -87,8 +87,10 @@ fn non_interactive_terminal_startup_renders_summary_smoke_output() {
     assert!(output.status.success());
     let terminal_output = String::from_utf8(output.stdout).expect("terminal output");
     assert!(terminal_output.contains("AI Usage"));
-    assert!(terminal_output.contains("Session Detail"));
-    assert!(terminal_output.contains("tokens 15"));
+    assert!(terminal_output.contains("Sessions"));
+    assert!(terminal_output.contains("Price / Million"));
+    assert!(terminal_output.contains("Input $5.00 Output $30.00"));
+    assert!(terminal_output.contains("15 tokens"));
 }
 
 fn write_session_file(path: &Path, lines: &[&str]) {

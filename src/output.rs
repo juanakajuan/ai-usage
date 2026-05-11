@@ -6,12 +6,14 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::cost::{CostState, IncompleteCostReason};
-use crate::reporting_period::{DerivedSummary, PeriodCostState, ReportingPeriodKind};
+use crate::reporting_period::{
+    DerivedSummary, HeadlinePeriod, PeriodCostState, ReportingPeriodKind,
+};
 use crate::session::{DataQualityNoticeKind, TokenTotals};
 use crate::usage_source::UsageSourceResolution;
 
 /// Current JSON Output schema version.
-pub const OUTPUT_SCHEMA_VERSION: u32 = 1;
+pub const OUTPUT_SCHEMA_VERSION: u32 = 2;
 
 /// JSON Output rendering options.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,6 +58,10 @@ pub struct JsonHeadlinePeriod {
     pub local_end_date: Option<String>,
     /// Known United States Dollar Cost with calculation precision.
     pub known_united_states_dollar_cost: String,
+    /// Previous matching Reporting Period known United States Dollar Cost.
+    pub previous_period_known_united_states_dollar_cost: Option<String>,
+    /// Change in known United States Dollar Cost from the previous matching Reporting Period.
+    pub known_united_states_dollar_cost_change_from_previous_period: Option<String>,
     /// Aggregate cost state.
     pub period_cost_state: JsonPeriodCostState,
     /// Aggregated token totals.
@@ -191,6 +197,13 @@ pub fn build_json_output(
                     .summary_totals
                     .known_united_states_dollar_cost
                     .to_string(),
+                previous_period_known_united_states_dollar_cost: headline_period
+                    .previous_period_known_united_states_dollar_cost
+                    .map(|cost| cost.to_string()),
+                known_united_states_dollar_cost_change_from_previous_period:
+                    known_united_states_dollar_cost_change_from_previous_period_json(
+                        headline_period,
+                    ),
                 period_cost_state: period_cost_state_json(
                     &headline_period.summary_totals.period_cost_state,
                 ),
@@ -242,6 +255,20 @@ pub fn build_json_output(
             })
             .collect(),
     })
+}
+
+fn known_united_states_dollar_cost_change_from_previous_period_json(
+    headline_period: &HeadlinePeriod,
+) -> Option<String> {
+    headline_period
+        .previous_period_known_united_states_dollar_cost
+        .map(|previous_period_known_united_states_dollar_cost| {
+            (headline_period
+                .summary_totals
+                .known_united_states_dollar_cost
+                - previous_period_known_united_states_dollar_cost)
+                .to_string()
+        })
 }
 
 fn usage_source_json(
@@ -408,6 +435,11 @@ mod tests {
             price_schedule_match: Some(crate::cost::PriceScheduleMatch {
                 model: "gpt-5.5".to_owned(),
                 effective_date: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+                input_tokens_per_million: Decimal::from_str_exact("5.000").unwrap(),
+                cache_read_tokens_per_million: Decimal::from_str_exact("0.500").unwrap(),
+                cache_write_tokens_per_million: Decimal::from_str_exact("5.000").unwrap(),
+                output_tokens_per_million: Decimal::from_str_exact("30.000").unwrap(),
+                reasoning_output_tokens_per_million: None,
             }),
         };
         let derived_summary = DerivedSummary {
@@ -425,6 +457,7 @@ mod tests {
                     token_totals: priced_session.codex_session.token_totals.clone(),
                     session_count: 1,
                 },
+                previous_period_known_united_states_dollar_cost: None,
                 session_detail: vec![priced_session],
             }],
             all_time_detail: Vec::new(),
@@ -455,6 +488,15 @@ mod tests {
         assert_eq!(
             normal_output.headline_periods[0].known_united_states_dollar_cost,
             "2"
+        );
+        assert_eq!(
+            normal_output.headline_periods[0].previous_period_known_united_states_dollar_cost,
+            None
+        );
+        assert_eq!(
+            normal_output.headline_periods[0]
+                .known_united_states_dollar_cost_change_from_previous_period,
+            None
         );
         assert_eq!(normal_output.data_quality_detail[0].kind, "parse_problem");
         assert!(redacted_output.usage_source.path.starts_with('~'));

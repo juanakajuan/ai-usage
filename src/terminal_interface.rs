@@ -4,22 +4,36 @@ use std::error::Error;
 use std::io::{self, Stdout};
 use std::time::Duration;
 
+use chrono::Local;
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::Frame;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
+use rust_decimal::Decimal;
 
-use crate::cost::{CostState, PricedCodexSession, format_united_states_dollar_cost};
-use crate::reporting_period::{
-    DerivedSummary, HeadlinePeriod, PeriodCostState, ReportingPeriodKind,
+use crate::cost::{
+    CostState, PriceScheduleMatch, PricedCodexSession, format_united_states_dollar_cost,
 };
+use crate::reporting_period::{DerivedSummary, HeadlinePeriod, ReportingPeriodKind};
+
+const MATTE_BOX_BACKGROUND: Color = Color::Rgb(14, 14, 13);
+const MATTE_BOX_FOREGROUND: Color = Color::Rgb(224, 214, 194);
+const MATTE_BOX_MUTED_FOREGROUND: Color = Color::Rgb(139, 132, 116);
+const MATTE_BOX_ACCENT: Color = Color::Rgb(117, 172, 154);
+const MATTE_BOX_SUCCESS: Color = Color::Rgb(134, 174, 124);
+const MATTE_BOX_WARNING: Color = Color::Rgb(211, 151, 98);
+const MATTE_BOX_SELECTED_BACKGROUND: Color = Color::Rgb(37, 37, 34);
+const SESSION_TABLE_COLUMN_SPACING: u16 = 1;
+const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 8] = [8, 8, 18, 28, 9, 14, 13, 12];
+const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 8] = [1, 1, 2, 4, 1, 2, 1, 1];
 
 /// Terminal actions requested by keyboard input.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -195,15 +209,7 @@ fn run_event_loop(
     let mut terminal_interface_state = TerminalInterfaceState::new(&derived_summary);
     loop {
         terminal.draw(|frame| {
-            let layout = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(8), Constraint::Min(4)])
-                .split(frame.area());
-            frame.render_widget(summary_paragraph(&derived_summary), layout[0]);
-            frame.render_widget(
-                session_panel(&derived_summary, &terminal_interface_state),
-                layout[1],
-            );
+            render_terminal_screen(frame, &derived_summary, &terminal_interface_state);
         })?;
 
         if event::poll(Duration::from_millis(250))?
@@ -225,23 +231,22 @@ fn run_event_loop(
 
 /// Renders a non-interactive terminal smoke-check summary.
 pub fn render_terminal_summary(derived_summary: &DerivedSummary) -> String {
-    let mut lines = vec!["AI Usage".to_owned()];
+    let mut lines = vec![
+        "AI Usage".to_owned(),
+        format!(
+            "Updated {}                                             {}",
+            Local::now().format("%-I:%M%P"),
+            data_quality_summary_label(derived_summary.data_quality_notices.len())
+        ),
+    ];
     for headline_period in &derived_summary.headline_periods {
-        lines.push(render_headline_period_row(
-            headline_period,
-            largest_period_cost(derived_summary),
-        ));
-    }
-    if !derived_summary.data_quality_notices.is_empty() {
-        lines.push(format!(
-            "! Data Quality: {} notice(s), first: {}",
-            derived_summary.data_quality_notices.len(),
-            derived_summary.data_quality_notices[0].detail
-        ));
+        lines.push(render_headline_period_row(headline_period));
     }
     if let Some(all_time_period) = selected_period(derived_summary, &ReportingPeriodKind::AllTime) {
         lines.push(String::new());
-        lines.push("Session Detail".to_owned());
+        lines.push("Sessions".to_owned());
+        lines.push(session_table_header());
+        lines.push(session_table_separator());
         lines.extend(render_session_detail_lines(all_time_period, 8));
     }
     if let Some(first_session) = selected_period(derived_summary, &ReportingPeriodKind::AllTime)
@@ -265,98 +270,364 @@ pub fn render_terminal_summary(derived_summary: &DerivedSummary) -> String {
     lines.join("\n")
 }
 
-fn summary_paragraph(derived_summary: &DerivedSummary) -> Paragraph<'_> {
-    let mut lines = vec![Line::from(Span::styled(
-        "AI Usage",
-        Style::default()
-            .fg(Color::Rgb(224, 214, 194))
-            .add_modifier(Modifier::BOLD),
-    ))];
-    let largest_cost = largest_period_cost(derived_summary);
-    for headline_period in &derived_summary.headline_periods {
-        lines.push(Line::from(render_headline_period_row(
-            headline_period,
-            largest_cost,
-        )));
-    }
-    if !derived_summary.data_quality_notices.is_empty() {
-        lines.push(Line::from(format!(
-            "! Data Quality: {} notice(s)",
-            derived_summary.data_quality_notices.len()
-        )));
-    }
+/// Renders the full interactive terminal frame, including the outer panel and key strip.
+fn render_terminal_screen(
+    frame: &mut Frame<'_>,
+    derived_summary: &DerivedSummary,
+    terminal_interface_state: &TerminalInterfaceState,
+) {
+    let screen_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(6), Constraint::Length(1)])
+        .split(frame.area());
+    let content_area = screen_layout[0];
+    let footer_area = screen_layout[1];
+    let outer_block = Block::default()
+        .title(Line::from(" AI Usage ").style(title_style()))
+        .borders(Borders::ALL)
+        .border_style(border_style())
+        .style(matte_box_style());
+    let inner_area = outer_block.inner(content_area);
 
-    Paragraph::new(lines)
-        .block(Block::default().borders(Borders::BOTTOM))
-        .style(
-            Style::default()
-                .bg(Color::Rgb(14, 14, 13))
-                .fg(Color::Rgb(224, 214, 194)),
-        )
+    frame.render_widget(outer_block, content_area);
+    render_usage_content(frame, inner_area, derived_summary, terminal_interface_state);
+    frame.render_widget(footer_paragraph(), footer_area);
 }
 
+/// Renders the Usage Summary and Session Detail content inside the outer panel.
+fn render_usage_content(
+    frame: &mut Frame<'_>,
+    content_area: Rect,
+    derived_summary: &DerivedSummary,
+    terminal_interface_state: &TerminalInterfaceState,
+) {
+    if content_area.height == 0 {
+        return;
+    }
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(4),
+            Constraint::Min(3),
+        ])
+        .split(content_area);
+
+    render_screen_header(frame, layout[0], derived_summary);
+    frame.render_widget(horizontal_separator(content_area.width), layout[1]);
+    frame.render_widget(
+        summary_table(derived_summary, terminal_interface_state),
+        layout[2],
+    );
+    frame.render_widget(
+        session_panel(derived_summary, terminal_interface_state, layout[3]),
+        layout[3],
+    );
+}
+
+/// Renders the updated timestamp and concise Data Quality Notice count.
+fn render_screen_header(
+    frame: &mut Frame<'_>,
+    header_area: Rect,
+    derived_summary: &DerivedSummary,
+) {
+    let header_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(12), Constraint::Length(30)])
+        .split(header_area);
+
+    frame.render_widget(
+        Paragraph::new(format!("Updated {}", Local::now().format("%-I:%M%P"))).style(muted_style()),
+        header_layout[0],
+    );
+    frame.render_widget(
+        Paragraph::new(data_quality_summary_label(
+            derived_summary.data_quality_notices.len(),
+        ))
+        .alignment(Alignment::Right)
+        .style(muted_style()),
+        header_layout[1],
+    );
+}
+
+/// Builds the compact Headline Period table from cost-first summary data.
+fn summary_table(
+    derived_summary: &DerivedSummary,
+    terminal_interface_state: &TerminalInterfaceState,
+) -> Table<'static> {
+    let rows = derived_summary
+        .headline_periods
+        .iter()
+        .enumerate()
+        .map(|(headline_period_index, headline_period)| {
+            let row_style = if headline_period_index
+                == terminal_interface_state.selected_headline_period_index
+            {
+                selected_row_style()
+            } else {
+                matte_box_style()
+            };
+
+            Row::new(vec![
+                Cell::from(reporting_period_label(&headline_period.kind)),
+                Cell::from(format_united_states_dollar_cost(
+                    headline_period
+                        .summary_totals
+                        .known_united_states_dollar_cost,
+                )),
+                Cell::from(format!(
+                    "{} tokens",
+                    compact_token_count(headline_period.summary_totals.token_totals.total_tokens)
+                )),
+                Cell::from(format!(
+                    "{} sessions",
+                    headline_period.summary_totals.session_count
+                )),
+                Cell::from(period_cost_change_label(headline_period))
+                    .style(period_cost_change_style(headline_period)),
+            ])
+            .style(row_style)
+        })
+        .collect::<Vec<_>>();
+
+    Table::new(
+        rows,
+        [
+            Constraint::Length(13),
+            Constraint::Length(10),
+            Constraint::Length(18),
+            Constraint::Length(14),
+            Constraint::Length(22),
+        ],
+    )
+    .style(matte_box_style())
+}
+
+/// Builds the Session Detail table or the focused Expanded Session Detail view.
 fn session_panel(
     derived_summary: &DerivedSummary,
     terminal_interface_state: &TerminalInterfaceState,
-) -> Paragraph<'static> {
+    session_area: Rect,
+) -> Table<'static> {
     if terminal_interface_state.is_expanded_session_detail_open
         && let Some(priced_session) = terminal_interface_state.selected_session(derived_summary)
     {
-        return Paragraph::new(render_expanded_session_detail_lines(priced_session).join("\n"))
-            .block(
-                Block::default()
-                    .title("Expanded Session Detail")
-                    .borders(Borders::TOP),
-            )
-            .style(matte_box_style());
+        return expanded_session_detail_table(priced_session);
     }
 
-    Paragraph::new(session_list_text(derived_summary, terminal_interface_state))
+    let maximum_visible_session_count = session_area.height.saturating_sub(4).max(1) as usize;
+    Table::new(
+        session_table_rows(
+            derived_summary,
+            terminal_interface_state,
+            maximum_visible_session_count,
+        ),
+        session_table_column_constraints(session_area.width),
+    )
+    .column_spacing(SESSION_TABLE_COLUMN_SPACING)
+    .header(
+        Row::new(vec![
+            Cell::from("Status"),
+            Cell::from("Time"),
+            Cell::from("Model"),
+            Cell::from("Price / Million"),
+            Cell::from("Cost"),
+            Cell::from("Project"),
+            Cell::from("Tokens"),
+            Cell::from("Quality"),
+        ])
+        .style(header_style())
+        .bottom_margin(1),
+    )
+    .block(
+        Block::default()
+            .title(Line::from(" Sessions ").style(title_style()))
+            .borders(Borders::TOP)
+            .border_style(border_style()),
+    )
+    .style(matte_box_style())
+}
+
+/// Builds Session Detail table column widths that consume the full available panel width.
+fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 8] {
+    let session_table_column_gap_count =
+        SESSION_TABLE_MINIMUM_COLUMN_WIDTHS.len().saturating_sub(1) as u16;
+    let spacing_width = SESSION_TABLE_COLUMN_SPACING * session_table_column_gap_count;
+    let available_column_width = session_area_width.saturating_sub(spacing_width);
+    let minimum_column_width: u16 = SESSION_TABLE_MINIMUM_COLUMN_WIDTHS.iter().copied().sum();
+
+    if available_column_width <= minimum_column_width {
+        return SESSION_TABLE_MINIMUM_COLUMN_WIDTHS.map(Constraint::Length);
+    }
+
+    let mut column_widths = SESSION_TABLE_MINIMUM_COLUMN_WIDTHS;
+    let mut remaining_extra_width = available_column_width - minimum_column_width;
+    let mut remaining_extra_width_weight: u16 =
+        SESSION_TABLE_EXTRA_WIDTH_WEIGHTS.iter().copied().sum();
+
+    for (column_width, extra_width_weight) in column_widths
+        .iter_mut()
+        .zip(SESSION_TABLE_EXTRA_WIDTH_WEIGHTS)
+    {
+        let column_extra_width = if remaining_extra_width_weight == 0 {
+            0
+        } else {
+            ((u32::from(remaining_extra_width) * u32::from(extra_width_weight))
+                / u32::from(remaining_extra_width_weight)) as u16
+        };
+        *column_width += column_extra_width;
+        remaining_extra_width -= column_extra_width;
+        remaining_extra_width_weight -= extra_width_weight;
+    }
+
+    column_widths.map(Constraint::Length)
+}
+
+fn expanded_session_detail_table(priced_session: &PricedCodexSession) -> Table<'static> {
+    let rows = render_expanded_session_detail_lines(priced_session)
+        .into_iter()
+        .map(|line| Row::new(vec![Cell::from(line)]))
+        .collect::<Vec<_>>();
+
+    Table::new(rows, [Constraint::Percentage(100)])
         .block(
             Block::default()
-                .title("Session Detail")
-                .borders(Borders::TOP),
+                .title(Line::from(" Expanded Session Detail ").style(title_style()))
+                .borders(Borders::TOP)
+                .border_style(border_style()),
         )
         .style(matte_box_style())
 }
 
-fn session_list_text(
+/// Builds table rows for the currently selected Reporting Period.
+fn session_table_rows(
     derived_summary: &DerivedSummary,
     terminal_interface_state: &TerminalInterfaceState,
-) -> String {
+    maximum_visible_session_count: usize,
+) -> Vec<Row<'static>> {
     let sessions = terminal_interface_state
         .selected_period(derived_summary)
         .map(|period| period.session_detail.as_slice())
         .unwrap_or(&[]);
-    let rows = sessions
+
+    if sessions.is_empty() {
+        return vec![Row::new(vec![
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from("No sessions for selected period").style(muted_style()),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(""),
+        ])];
+    }
+
+    let visible_start_index = visible_session_start_index(
+        terminal_interface_state.selected_session_index,
+        sessions.len(),
+        maximum_visible_session_count,
+    );
+
+    sessions
         .iter()
-        .take(20)
         .enumerate()
+        .skip(visible_start_index)
+        .take(maximum_visible_session_count)
         .map(|(session_index, priced_session)| {
             let project_name = priced_session
                 .codex_session
                 .project_name
                 .as_deref()
                 .unwrap_or("(no project)");
-            let selection_marker =
-                if session_index == terminal_interface_state.selected_session_index {
-                    ">"
-                } else {
-                    " "
-                };
-            format!(
-                "{selection_marker} {}",
-                compact_session_row(priced_session, project_name)
-            )
-        });
+            let row_style = if session_index == terminal_interface_state.selected_session_index {
+                selected_row_style()
+            } else {
+                matte_box_style()
+            };
 
-    rows.collect::<Vec<_>>().join("\n")
+            Row::new(vec![
+                Cell::from(session_status_label(priced_session))
+                    .style(session_status_style(priced_session)),
+                Cell::from(session_time_label(priced_session)),
+                Cell::from(priced_session.codex_session.model.clone()),
+                Cell::from(session_pricing_label(
+                    priced_session.price_schedule_match.as_ref(),
+                )),
+                Cell::from(session_cost_label(&priced_session.cost_state)),
+                Cell::from(project_name.to_owned()),
+                Cell::from(format!(
+                    "{} tokens",
+                    compact_token_count(priced_session.codex_session.token_totals.total_tokens)
+                )),
+                Cell::from(session_quality_label(priced_session)).style(muted_style()),
+            ])
+            .style(row_style)
+        })
+        .collect()
+}
+
+fn visible_session_start_index(
+    selected_session_index: usize,
+    session_count: usize,
+    maximum_visible_session_count: usize,
+) -> usize {
+    if maximum_visible_session_count == 0 || session_count <= maximum_visible_session_count {
+        return 0;
+    }
+
+    selected_session_index
+        .saturating_add(1)
+        .saturating_sub(maximum_visible_session_count)
+        .min(session_count - maximum_visible_session_count)
 }
 
 fn matte_box_style() -> Style {
     Style::default()
-        .bg(Color::Rgb(14, 14, 13))
-        .fg(Color::Rgb(224, 214, 194))
+        .bg(MATTE_BOX_BACKGROUND)
+        .fg(MATTE_BOX_FOREGROUND)
+}
+
+fn title_style() -> Style {
+    matte_box_style()
+        .fg(MATTE_BOX_FOREGROUND)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn header_style() -> Style {
+    matte_box_style()
+        .fg(MATTE_BOX_MUTED_FOREGROUND)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn muted_style() -> Style {
+    matte_box_style().fg(MATTE_BOX_MUTED_FOREGROUND)
+}
+
+fn border_style() -> Style {
+    matte_box_style().fg(MATTE_BOX_MUTED_FOREGROUND)
+}
+
+fn selected_row_style() -> Style {
+    matte_box_style().bg(MATTE_BOX_SELECTED_BACKGROUND)
+}
+
+fn footer_paragraph() -> Paragraph<'static> {
+    Paragraph::new(Line::from(vec![
+        Span::raw(" ↑/↓ move   "),
+        Span::raw("←/→ period   "),
+        Span::raw("enter details   "),
+        Span::raw("r reload   "),
+        Span::raw("q quit"),
+    ]))
+    .style(matte_box_style())
+    .alignment(Alignment::Center)
+}
+
+fn horizontal_separator(width: u16) -> Paragraph<'static> {
+    Paragraph::new("─".repeat(width as usize)).style(border_style())
 }
 
 /// Renders newest-first Session Detail lines for a selected Reporting Period.
@@ -403,6 +674,11 @@ pub fn render_expanded_session_detail_lines(priced_session: &PricedCodexSession)
         format!("Project Path: {project_path}"),
         format!("Model: {}", priced_session.codex_session.model),
         format!("Price Schedule: {price_schedule}"),
+    ];
+    lines.extend(price_schedule_rate_lines(
+        priced_session.price_schedule_match.as_ref(),
+    ));
+    lines.extend([
         format!(
             "Input Tokens: {}",
             optional_token_count(token_totals.input_tokens)
@@ -431,7 +707,7 @@ pub fn render_expanded_session_detail_lines(priced_session: &PricedCodexSession)
             "Total Tokens: {}",
             optional_token_count(token_totals.total_tokens)
         ),
-    ];
+    ]);
 
     match &priced_session.cost_state {
         CostState::Complete { .. } => lines.push("Incomplete Reasons: none".to_owned()),
@@ -444,42 +720,35 @@ pub fn render_expanded_session_detail_lines(priced_session: &PricedCodexSession)
     lines
 }
 
-fn render_headline_period_row(
-    headline_period: &HeadlinePeriod,
-    largest_period_cost: rust_decimal::Decimal,
-) -> String {
+fn render_headline_period_row(headline_period: &HeadlinePeriod) -> String {
     format!(
-        "{} {}  {}  tokens {}  sessions {}  trend {}",
-        period_status_marker(&headline_period.summary_totals.period_cost_state),
+        "{:<11} {:>8}  {:>12} tokens  {:>3} sessions  {}",
         reporting_period_label(&headline_period.kind),
         format_united_states_dollar_cost(
             headline_period
                 .summary_totals
                 .known_united_states_dollar_cost
         ),
-        optional_token_count(headline_period.summary_totals.token_totals.total_tokens),
+        compact_token_count(headline_period.summary_totals.token_totals.total_tokens),
         headline_period.summary_totals.session_count,
-        trend_bar(
-            headline_period
-                .summary_totals
-                .known_united_states_dollar_cost,
-            largest_period_cost
-        )
+        period_cost_change_label(headline_period)
     )
 }
 
 fn compact_session_row(priced_session: &PricedCodexSession, project_name: &str) -> String {
     format!(
-        "{} {}  {}  {}  {}  tokens {}",
-        session_status_marker(priced_session),
-        priced_session
-            .codex_session
-            .session_start_time
-            .format("%Y-%m-%d %H:%M"),
+        "{:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        session_status_label(priced_session),
+        session_time_label(priced_session),
         priced_session.codex_session.model,
+        session_pricing_label(priced_session.price_schedule_match.as_ref()),
         session_cost_label(&priced_session.cost_state),
         project_name,
-        optional_token_count(priced_session.codex_session.token_totals.total_tokens)
+        format!(
+            "{} tokens",
+            compact_token_count(priced_session.codex_session.token_totals.total_tokens)
+        ),
+        session_quality_label(priced_session)
     )
 }
 
@@ -503,31 +772,70 @@ fn offset_index(current_index: usize, direction: isize, last_index: usize) -> us
     }
 }
 
-fn largest_period_cost(derived_summary: &DerivedSummary) -> rust_decimal::Decimal {
-    derived_summary
-        .headline_periods
-        .iter()
-        .map(|period| period.summary_totals.known_united_states_dollar_cost)
-        .max()
-        .unwrap_or(rust_decimal::Decimal::ZERO)
+fn period_cost_change_label(headline_period: &HeadlinePeriod) -> String {
+    let Some(previous_period_known_united_states_dollar_cost) =
+        headline_period.previous_period_known_united_states_dollar_cost
+    else {
+        return "no comparison".to_owned();
+    };
+
+    let known_united_states_dollar_cost_change = headline_period
+        .summary_totals
+        .known_united_states_dollar_cost
+        - previous_period_known_united_states_dollar_cost;
+
+    format!(
+        "{} {}",
+        format_signed_united_states_dollar_cost(known_united_states_dollar_cost_change),
+        previous_period_comparison_label(&headline_period.kind)
+    )
 }
 
-fn trend_bar(cost: rust_decimal::Decimal, largest_cost: rust_decimal::Decimal) -> String {
-    if largest_cost <= rust_decimal::Decimal::ZERO {
-        return "[.....]".to_owned();
+fn period_cost_change_style(headline_period: &HeadlinePeriod) -> Style {
+    let Some(previous_period_known_united_states_dollar_cost) =
+        headline_period.previous_period_known_united_states_dollar_cost
+    else {
+        return muted_style();
+    };
+
+    let known_united_states_dollar_cost_change = headline_period
+        .summary_totals
+        .known_united_states_dollar_cost
+        - previous_period_known_united_states_dollar_cost;
+
+    if known_united_states_dollar_cost_change > rust_decimal::Decimal::ZERO {
+        return matte_box_style().fg(MATTE_BOX_WARNING);
     }
-    let ratio = cost / largest_cost;
-    let filled_width = (ratio * rust_decimal::Decimal::from(5u8))
-        .round()
-        .to_string()
-        .parse::<usize>()
-        .unwrap_or(0)
-        .min(5);
-    format!(
-        "[{}{}]",
-        "#".repeat(filled_width),
-        ".".repeat(5 - filled_width)
-    )
+    if known_united_states_dollar_cost_change < rust_decimal::Decimal::ZERO {
+        return matte_box_style().fg(MATTE_BOX_SUCCESS);
+    }
+    muted_style()
+}
+
+fn format_signed_united_states_dollar_cost(cost: rust_decimal::Decimal) -> String {
+    let absolute_cost = if cost < rust_decimal::Decimal::ZERO {
+        -cost
+    } else {
+        cost
+    };
+    let formatted_cost = format_united_states_dollar_cost(absolute_cost);
+
+    if cost > rust_decimal::Decimal::ZERO {
+        format!("+{formatted_cost}")
+    } else if cost < rust_decimal::Decimal::ZERO {
+        format!("-{formatted_cost}")
+    } else {
+        formatted_cost
+    }
+}
+
+fn previous_period_comparison_label(kind: &ReportingPeriodKind) -> &'static str {
+    match kind {
+        ReportingPeriodKind::Daily => "vs yesterday",
+        ReportingPeriodKind::Weekly => "vs last week",
+        ReportingPeriodKind::Monthly => "vs last month",
+        ReportingPeriodKind::AllTime => "vs previous all time",
+    }
 }
 
 fn optional_token_count(token_count: Option<u64>) -> String {
@@ -536,24 +844,118 @@ fn optional_token_count(token_count: Option<u64>) -> String {
         .unwrap_or_else(|| "unknown".to_owned())
 }
 
-fn period_status_marker(period_cost_state: &PeriodCostState) -> &'static str {
-    match period_cost_state {
-        PeriodCostState::MissingUsageSource => "[!]",
-        PeriodCostState::ZeroUsage => "[0]",
-        PeriodCostState::Complete => "[+]",
-        PeriodCostState::Partial { .. } => "[~]",
-        PeriodCostState::Incomplete { .. } => "[?]",
+/// Formats token counts with compact suffixes for table columns.
+fn compact_token_count(token_count: Option<u64>) -> String {
+    let Some(token_count) = token_count else {
+        return "unknown".to_owned();
+    };
+
+    if token_count >= 1_000_000 {
+        return format!("{:.2}M", token_count as f64 / 1_000_000.0);
+    }
+    if token_count >= 1_000 {
+        return format!("{:.1}K", token_count as f64 / 1_000.0);
+    }
+    token_count.to_string()
+}
+
+fn session_status_label(priced_session: &PricedCodexSession) -> &'static str {
+    if priced_session.codex_session.is_active {
+        return "● Act";
+    }
+    match priced_session.cost_state {
+        CostState::Complete { .. } => "● OK",
+        CostState::Partial { .. } | CostState::Incomplete { .. } => "◐ Inc",
     }
 }
 
-fn session_status_marker(priced_session: &PricedCodexSession) -> &'static str {
+fn session_status_style(priced_session: &PricedCodexSession) -> Style {
     if priced_session.codex_session.is_active {
-        return "[A]";
+        return matte_box_style().fg(MATTE_BOX_ACCENT);
     }
     match priced_session.cost_state {
-        CostState::Complete { .. } => "[+]",
-        CostState::Partial { .. } => "[~]",
-        CostState::Incomplete { .. } => "[?]",
+        CostState::Complete { .. } => matte_box_style().fg(MATTE_BOX_SUCCESS),
+        CostState::Partial { .. } | CostState::Incomplete { .. } => {
+            matte_box_style().fg(MATTE_BOX_WARNING)
+        }
+    }
+}
+
+fn session_time_label(priced_session: &PricedCodexSession) -> String {
+    priced_session
+        .codex_session
+        .session_start_time
+        .with_timezone(&Local)
+        .format("%-I:%M%P")
+        .to_string()
+}
+
+fn session_pricing_label(price_schedule_match: Option<&PriceScheduleMatch>) -> String {
+    let Some(price_schedule_match) = price_schedule_match else {
+        return "Unpriced".to_owned();
+    };
+
+    format!(
+        "Input {} Output {}",
+        format_united_states_dollar_price_per_million_tokens(
+            price_schedule_match.input_tokens_per_million
+        ),
+        format_united_states_dollar_price_per_million_tokens(
+            price_schedule_match.output_tokens_per_million
+        )
+    )
+}
+
+fn price_schedule_rate_lines(price_schedule_match: Option<&PriceScheduleMatch>) -> Vec<String> {
+    let Some(price_schedule_match) = price_schedule_match else {
+        return Vec::new();
+    };
+    let reasoning_output_tokens_per_million = price_schedule_match
+        .reasoning_output_tokens_per_million
+        .unwrap_or(price_schedule_match.output_tokens_per_million);
+
+    vec![
+        format!(
+            "Input Tokens / Million: {}",
+            format_united_states_dollar_price_per_million_tokens(
+                price_schedule_match.input_tokens_per_million
+            )
+        ),
+        format!(
+            "Cache Read Tokens / Million: {}",
+            format_united_states_dollar_price_per_million_tokens(
+                price_schedule_match.cache_read_tokens_per_million
+            )
+        ),
+        format!(
+            "Cache Write Tokens / Million: {}",
+            format_united_states_dollar_price_per_million_tokens(
+                price_schedule_match.cache_write_tokens_per_million
+            )
+        ),
+        format!(
+            "Output Tokens / Million: {}",
+            format_united_states_dollar_price_per_million_tokens(
+                price_schedule_match.output_tokens_per_million
+            )
+        ),
+        format!(
+            "Reasoning Output Tokens / Million: {}",
+            format_united_states_dollar_price_per_million_tokens(
+                reasoning_output_tokens_per_million
+            )
+        ),
+    ]
+}
+
+fn format_united_states_dollar_price_per_million_tokens(
+    price_per_million_tokens: Decimal,
+) -> String {
+    let normalized_price = price_per_million_tokens.normalize();
+    if normalized_price.scale() > 2 {
+        format!("${normalized_price}")
+    } else {
+        format!("${normalized_price:.2}")
     }
 }
 
@@ -565,21 +967,66 @@ fn session_cost_label(cost_state: &CostState) -> String {
         CostState::Partial {
             known_united_states_dollar_cost,
             ..
-        } => format!(
-            "{} partial",
-            format_united_states_dollar_cost(*known_united_states_dollar_cost)
-        ),
-        CostState::Incomplete { .. } => "incomplete".to_owned(),
+        } => format_united_states_dollar_cost(*known_united_states_dollar_cost),
+        CostState::Incomplete { .. } => "—".to_owned(),
+    }
+}
+
+fn session_quality_label(priced_session: &PricedCodexSession) -> &'static str {
+    if priced_session.codex_session.is_active {
+        return match priced_session.cost_state {
+            CostState::Complete { .. } => "active",
+            CostState::Partial { .. } | CostState::Incomplete { .. } => "active incomplete",
+        };
+    }
+
+    match priced_session.cost_state {
+        CostState::Complete { .. } => "—",
+        CostState::Partial { .. } | CostState::Incomplete { .. } => "incomplete",
     }
 }
 
 fn reporting_period_label(kind: &ReportingPeriodKind) -> &'static str {
     match kind {
-        ReportingPeriodKind::Daily => "Daily",
-        ReportingPeriodKind::Weekly => "Weekly",
-        ReportingPeriodKind::Monthly => "Monthly",
-        ReportingPeriodKind::AllTime => "All-Time",
+        ReportingPeriodKind::Daily => "Today",
+        ReportingPeriodKind::Weekly => "This Week",
+        ReportingPeriodKind::Monthly => "This Month",
+        ReportingPeriodKind::AllTime => "All Time",
     }
+}
+
+fn data_quality_summary_label(data_quality_notice_count: usize) -> String {
+    if data_quality_notice_count == 0 {
+        return "Data Quality: OK".to_owned();
+    }
+
+    let notice_word = if data_quality_notice_count == 1 {
+        "notice"
+    } else {
+        "notices"
+    };
+    format!("Data Quality: {data_quality_notice_count} {notice_word}")
+}
+
+fn session_table_header() -> String {
+    format!(
+        "{:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        "Status", "Time", "Model", "Price / Million", "Cost", "Project", "Tokens", "Quality"
+    )
+}
+
+fn session_table_separator() -> String {
+    format!(
+        "{:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        "──────",
+        "───────",
+        "─────────────────",
+        "──────────────────────",
+        "───────",
+        "────────────",
+        "──────────────",
+        "──────────────"
+    )
 }
 
 #[cfg(test)]
@@ -589,12 +1036,14 @@ mod tests {
 
     use super::*;
     use crate::cost::{IncompleteCostReason, PriceScheduleMatch};
-    use crate::reporting_period::{HeadlinePeriod, SummaryTotals, build_derived_summary_at};
+    use crate::reporting_period::{
+        HeadlinePeriod, PeriodCostState, SummaryTotals, build_derived_summary_at,
+    };
     use crate::session::{CodexSession, DataQualityNotice, DataQualityNoticeKind, TokenTotals};
     use crate::usage_source::UsageSourceResolution;
 
     #[test]
-    fn terminal_summary_renders_headline_tokens_markers_trends_and_data_quality() {
+    fn terminal_summary_renders_headline_tokens_cost_changes_and_data_quality() {
         let derived_summary = DerivedSummary {
             usage_source_resolution: UsageSourceResolution::Readable {
                 path: "source".into(),
@@ -604,6 +1053,8 @@ mod tests {
                 headline_period(
                     ReportingPeriodKind::Daily,
                     PeriodCostState::ZeroUsage,
+                    Decimal::ZERO,
+                    Some(Decimal::from(1)),
                     Vec::new(),
                 ),
                 headline_period(
@@ -613,6 +1064,8 @@ mod tests {
                             model: "unknown".to_owned(),
                         }],
                     },
+                    Decimal::from(3),
+                    Some(Decimal::from(2)),
                     vec![priced_session(
                         "active",
                         true,
@@ -626,11 +1079,15 @@ mod tests {
                             token_category: "Output Tokens".to_owned(),
                         }],
                     },
+                    Decimal::from(1),
+                    Some(Decimal::from(3)),
                     Vec::new(),
                 ),
                 headline_period(
                     ReportingPeriodKind::AllTime,
                     PeriodCostState::Complete,
+                    Decimal::from(5),
+                    None,
                     vec![priced_session(
                         "active",
                         true,
@@ -649,14 +1106,19 @@ mod tests {
 
         let rendered_summary = render_terminal_summary(&derived_summary);
 
-        assert!(rendered_summary.contains("[0] Daily"));
-        assert!(rendered_summary.contains("tokens 15"));
-        assert!(rendered_summary.contains("[~] Weekly"));
-        assert!(rendered_summary.contains("[?] Monthly"));
-        assert!(rendered_summary.contains("[+] All-Time"));
-        assert!(rendered_summary.contains("trend ["));
-        assert!(rendered_summary.contains("! Data Quality: 1 notice(s)"));
-        assert!(rendered_summary.contains("[A]"));
+        assert!(rendered_summary.contains("Today"));
+        assert!(rendered_summary.contains("15 tokens"));
+        assert!(rendered_summary.contains("This Week"));
+        assert!(rendered_summary.contains("This Month"));
+        assert!(rendered_summary.contains("All Time"));
+        assert!(rendered_summary.contains("+$1.00 vs last week"));
+        assert!(rendered_summary.contains("-$2.00 vs last month"));
+        assert!(rendered_summary.contains("no comparison"));
+        assert!(!rendered_summary.contains("▇"));
+        assert!(rendered_summary.contains("Data Quality: 1 notice"));
+        assert!(rendered_summary.contains("● Act"));
+        assert!(rendered_summary.contains("Price / Million"));
+        assert!(rendered_summary.contains("Input $5.00 Output $30.00"));
     }
 
     #[test]
@@ -701,7 +1163,8 @@ mod tests {
 
         assert!(session_detail[0].contains("newer"));
         assert!(session_detail[0].contains("gpt-5.5"));
-        assert!(session_detail[0].contains("tokens 15"));
+        assert!(session_detail[0].contains("Input $5.00 Output $30.00"));
+        assert!(session_detail[0].contains("15 tokens"));
         assert_eq!(
             derived_summary.all_time_detail[0].session_detail[0],
             newer_session
@@ -719,6 +1182,26 @@ mod tests {
         assert!(
             expanded_detail
                 .iter()
+                .any(|line| line.contains("Input Tokens / Million: $5.00"))
+        );
+        assert!(
+            expanded_detail
+                .iter()
+                .any(|line| line.contains("Cache Read Tokens / Million: $0.50"))
+        );
+        assert!(
+            expanded_detail
+                .iter()
+                .any(|line| line.contains("Output Tokens / Million: $30.00"))
+        );
+        assert!(
+            expanded_detail
+                .iter()
+                .any(|line| line.contains("Reasoning Output Tokens / Million: $30.00"))
+        );
+        assert!(
+            expanded_detail
+                .iter()
                 .any(|line| line.contains("Cache Read Tokens: 2"))
         );
         assert!(
@@ -726,6 +1209,67 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("Incomplete Reasons: 1"))
         );
+    }
+
+    #[test]
+    fn session_table_columns_use_full_available_width() {
+        let constraints = session_table_column_constraints(140);
+        let total_column_width = constraints
+            .iter()
+            .map(session_table_constraint_width)
+            .sum::<u16>();
+        let spacing_width =
+            SESSION_TABLE_COLUMN_SPACING * (constraints.len().saturating_sub(1) as u16);
+
+        assert_eq!(total_column_width + spacing_width, 140);
+        assert!(
+            session_table_constraint_width(&constraints[3])
+                > SESSION_TABLE_MINIMUM_COLUMN_WIDTHS[3]
+        );
+    }
+
+    #[test]
+    fn session_table_renders_full_price_label_at_standard_terminal_width() {
+        let derived_summary = build_derived_summary_at(
+            UsageSourceResolution::Readable {
+                path: "source".into(),
+                is_custom: false,
+            },
+            vec![priced_session(
+                "standard-width",
+                false,
+                CostState::Complete {
+                    united_states_dollar_cost: Decimal::from(1),
+                },
+            )],
+            Vec::new(),
+            chrono::Local
+                .with_ymd_and_hms(2026, 5, 10, 12, 0, 0)
+                .unwrap(),
+        );
+        let terminal_interface_state = TerminalInterfaceState::new(&derived_summary);
+        let terminal_backend = ratatui::backend::TestBackend::new(120, 8);
+        let mut terminal = Terminal::new(terminal_backend).expect("terminal");
+
+        terminal
+            .draw(|frame| {
+                let session_area = Rect::new(0, 0, 120, 8);
+                frame.render_widget(
+                    session_panel(&derived_summary, &terminal_interface_state, session_area),
+                    session_area,
+                );
+            })
+            .expect("draw session table");
+
+        let terminal_output = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+
+        assert!(terminal_output.contains("Input $5.00 Output $30.00"));
     }
 
     #[test]
@@ -849,6 +1393,8 @@ mod tests {
     fn headline_period(
         kind: ReportingPeriodKind,
         period_cost_state: PeriodCostState,
+        known_united_states_dollar_cost: Decimal,
+        previous_period_known_united_states_dollar_cost: Option<Decimal>,
         session_detail: Vec<PricedCodexSession>,
     ) -> HeadlinePeriod {
         HeadlinePeriod {
@@ -856,7 +1402,7 @@ mod tests {
             local_start_date: None,
             local_end_date: None,
             summary_totals: SummaryTotals {
-                known_united_states_dollar_cost: Decimal::from(2),
+                known_united_states_dollar_cost,
                 period_cost_state,
                 token_totals: TokenTotals {
                     input_tokens: Some(10),
@@ -866,7 +1412,15 @@ mod tests {
                 },
                 session_count: session_detail.len(),
             },
+            previous_period_known_united_states_dollar_cost,
             session_detail,
+        }
+    }
+
+    fn session_table_constraint_width(constraint: &Constraint) -> u16 {
+        match constraint {
+            Constraint::Length(width) => *width,
+            _ => panic!("session table column constraints should be concrete lengths"),
         }
     }
 
@@ -897,6 +1451,11 @@ mod tests {
             price_schedule_match: Some(PriceScheduleMatch {
                 model: "gpt-5.5".to_owned(),
                 effective_date: chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+                input_tokens_per_million: Decimal::from_str_exact("5.000").unwrap(),
+                cache_read_tokens_per_million: Decimal::from_str_exact("0.500").unwrap(),
+                cache_write_tokens_per_million: Decimal::from_str_exact("5.000").unwrap(),
+                output_tokens_per_million: Decimal::from_str_exact("30.000").unwrap(),
+                reasoning_output_tokens_per_million: None,
             }),
         }
     }

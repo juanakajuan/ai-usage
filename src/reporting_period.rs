@@ -33,6 +33,8 @@ pub struct HeadlinePeriod {
     pub local_end_date: Option<NaiveDate>,
     /// Aggregated totals and cost state.
     pub summary_totals: SummaryTotals,
+    /// Known United States Dollar Cost for the previous matching Reporting Period.
+    pub previous_period_known_united_states_dollar_cost: Option<Decimal>,
     /// Newest-first Session Detail.
     pub session_detail: Vec<PricedCodexSession>,
 }
@@ -111,12 +113,20 @@ pub fn build_derived_summary_at(
     let today = current_local_time.date_naive();
     let week_start = today - Duration::days(today.weekday().num_days_from_monday().into());
     let month_start = today.with_day(1).expect("current month has first day");
+    let previous_day = today - Duration::days(1);
+    let previous_week_start = week_start - Duration::days(7);
+    let previous_month_end = month_start - Duration::days(1);
+    let previous_month_start = previous_month_end
+        .with_day(1)
+        .expect("previous month has first day");
 
     let headline_periods = vec![
         period(
             ReportingPeriodKind::Daily,
             Some(today),
             Some(today),
+            Some(previous_day),
+            Some(previous_day),
             &usage_source_resolution,
             &priced_sessions,
         ),
@@ -124,6 +134,8 @@ pub fn build_derived_summary_at(
             ReportingPeriodKind::Weekly,
             Some(week_start),
             Some(week_start + Duration::days(6)),
+            Some(previous_week_start),
+            Some(week_start - Duration::days(1)),
             &usage_source_resolution,
             &priced_sessions,
         ),
@@ -131,11 +143,15 @@ pub fn build_derived_summary_at(
             ReportingPeriodKind::Monthly,
             Some(month_start),
             None,
+            Some(previous_month_start),
+            Some(previous_month_end),
             &usage_source_resolution,
             &priced_sessions,
         ),
         period(
             ReportingPeriodKind::AllTime,
+            None,
+            None,
             None,
             None,
             &usage_source_resolution,
@@ -155,40 +171,85 @@ fn period(
     kind: ReportingPeriodKind,
     local_start_date: Option<NaiveDate>,
     local_end_date: Option<NaiveDate>,
+    previous_local_start_date: Option<NaiveDate>,
+    previous_local_end_date: Option<NaiveDate>,
     usage_source_resolution: &UsageSourceResolution,
     priced_sessions: &[PricedCodexSession],
 ) -> HeadlinePeriod {
     let mut session_detail = priced_sessions
         .iter()
         .filter(|priced_session| {
-            let local_date = priced_session
-                .codex_session
-                .session_start_time
-                .with_timezone(&Local)
-                .date_naive();
-            match (local_start_date, local_end_date) {
-                (Some(start), Some(end)) => local_date >= start && local_date <= end,
-                (Some(start), None) => {
-                    local_date >= start
-                        && local_date.month() == start.month()
-                        && local_date.year() == start.year()
-                }
-                (None, None) => true,
-                (None, Some(_)) => true,
-            }
+            session_matches_reporting_period(priced_session, local_start_date, local_end_date)
         })
         .cloned()
         .collect::<Vec<_>>();
 
     sort_newest_first(&mut session_detail);
     let summary_totals = summary_totals(usage_source_resolution, &session_detail);
+    let previous_period_known_united_states_dollar_cost =
+        previous_period_known_united_states_dollar_cost(
+            previous_local_start_date,
+            previous_local_end_date,
+            usage_source_resolution,
+            priced_sessions,
+        );
 
     HeadlinePeriod {
         kind,
         local_start_date,
         local_end_date,
         summary_totals,
+        previous_period_known_united_states_dollar_cost,
         session_detail,
+    }
+}
+
+fn previous_period_known_united_states_dollar_cost(
+    previous_local_start_date: Option<NaiveDate>,
+    previous_local_end_date: Option<NaiveDate>,
+    usage_source_resolution: &UsageSourceResolution,
+    priced_sessions: &[PricedCodexSession],
+) -> Option<Decimal> {
+    if !usage_source_resolution.is_readable() {
+        return None;
+    }
+
+    let previous_local_start_date = previous_local_start_date?;
+    Some(
+        priced_sessions
+            .iter()
+            .filter(|priced_session| {
+                session_matches_reporting_period(
+                    priced_session,
+                    Some(previous_local_start_date),
+                    previous_local_end_date,
+                )
+            })
+            .map(|priced_session| known_cost(&priced_session.cost_state))
+            .sum(),
+    )
+}
+
+fn session_matches_reporting_period(
+    priced_session: &PricedCodexSession,
+    local_start_date: Option<NaiveDate>,
+    local_end_date: Option<NaiveDate>,
+) -> bool {
+    let local_date = priced_session
+        .codex_session
+        .session_start_time
+        .with_timezone(&Local)
+        .date_naive();
+
+    match (local_start_date, local_end_date) {
+        (Some(start), Some(end)) => local_date >= start && local_date <= end,
+        (Some(start), None) => {
+            local_date >= start
+                && local_date.month() == start.month()
+                && local_date.year() == start.year()
+        }
+        (None, None) => true,
+        (None, Some(_)) => true,
     }
 }
 
@@ -368,6 +429,10 @@ mod tests {
             1
         );
         assert_eq!(
+            derived_summary.headline_periods[0].previous_period_known_united_states_dollar_cost,
+            Some(Decimal::ZERO)
+        );
+        assert_eq!(
             derived_summary.headline_periods[1].local_start_date,
             Some(NaiveDate::from_ymd_opt(2026, 5, 4).unwrap())
         );
@@ -378,16 +443,28 @@ mod tests {
             2
         );
         assert_eq!(
+            derived_summary.headline_periods[1].previous_period_known_united_states_dollar_cost,
+            Some(Decimal::from(6))
+        );
+        assert_eq!(
             derived_summary.headline_periods[2]
                 .summary_totals
                 .session_count,
             3
         );
         assert_eq!(
+            derived_summary.headline_periods[2].previous_period_known_united_states_dollar_cost,
+            Some(Decimal::from(1))
+        );
+        assert_eq!(
             derived_summary.headline_periods[3]
                 .summary_totals
                 .session_count,
             4
+        );
+        assert_eq!(
+            derived_summary.headline_periods[3].previous_period_known_united_states_dollar_cost,
+            None
         );
         assert_eq!(
             derived_summary.headline_periods[3].session_detail[0]
@@ -464,6 +541,11 @@ mod tests {
             price_schedule_match: Some(crate::cost::PriceScheduleMatch {
                 model: "gpt-5.5".to_owned(),
                 effective_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+                input_tokens_per_million: Decimal::from_str_exact("5.000").unwrap(),
+                cache_read_tokens_per_million: Decimal::from_str_exact("0.500").unwrap(),
+                cache_write_tokens_per_million: Decimal::from_str_exact("5.000").unwrap(),
+                output_tokens_per_million: Decimal::from_str_exact("30.000").unwrap(),
+                reasoning_output_tokens_per_million: None,
             }),
         }
     }

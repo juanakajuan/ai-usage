@@ -42,8 +42,9 @@ AI Usage is a Rust terminal application for understanding the United States doll
 - Lead with cost and show token counts as supporting detail.
 - Use theme-aware terminal colors with a Matte Box-inspired fallback palette.
 - Keep the visual style restrained: compact spacing, minimal borders, and markers that work without color.
-- Show trend bars as compact supporting context, not as the main reporting surface.
+- Show each finite headline period's cost change from the previous matching period as compact supporting context.
 - Show selected-period session detail sorted newest first.
+- Show the price-per-million-token schedule summary used for each session.
 - Show all-time detail grouped by month first.
 - Show project names in compact session lists and full paths only in expanded detail.
 - Exclude prompt and conversation content from every terminal view.

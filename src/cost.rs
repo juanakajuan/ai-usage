@@ -23,6 +23,16 @@ pub struct PriceScheduleMatch {
     pub model: String,
     /// Effective date for the matched Price Schedule.
     pub effective_date: chrono::NaiveDate,
+    /// Input Tokens price per one million tokens.
+    pub input_tokens_per_million: Decimal,
+    /// Cache Read Tokens price per one million tokens.
+    pub cache_read_tokens_per_million: Decimal,
+    /// Cache Write Tokens price per one million tokens.
+    pub cache_write_tokens_per_million: Decimal,
+    /// Output Tokens price per one million tokens.
+    pub output_tokens_per_million: Decimal,
+    /// Reasoning Output Tokens price per one million tokens, when distinct.
+    pub reasoning_output_tokens_per_million: Option<Decimal>,
 }
 
 /// Typed Historical Cost state.
@@ -69,6 +79,12 @@ pub fn price_sessions(
                 .map(|price_schedule| PriceScheduleMatch {
                     model: price_schedule.model.clone(),
                     effective_date: price_schedule.effective_date,
+                    input_tokens_per_million: price_schedule.input_tokens_per_million,
+                    cache_read_tokens_per_million: price_schedule.cache_read_tokens_per_million,
+                    cache_write_tokens_per_million: price_schedule.cache_write_tokens_per_million,
+                    output_tokens_per_million: price_schedule.output_tokens_per_million,
+                    reasoning_output_tokens_per_million: price_schedule
+                        .reasoning_output_tokens_per_million,
                 });
             let cost_state = price_session(&codex_session, price_catalog);
             PricedCodexSession {
@@ -105,27 +121,43 @@ pub fn price_session(codex_session: &CodexSession, price_catalog: &PriceCatalog)
     let mut reasons = Vec::new();
     let mut cost = Decimal::ZERO;
 
-    match (non_cached_input_tokens, input_tokens, cache_read_tokens) {
-        (Some(non_cached_input_tokens), _, _) => {
-            cost += cost_for_tokens(
-                *non_cached_input_tokens,
-                price_schedule.input_tokens_per_million,
-            );
-        }
-        (None, Some(input_tokens), None) => {
-            cost += cost_for_tokens(*input_tokens, price_schedule.input_tokens_per_million);
-        }
+    let non_cached_input_tokens = match (non_cached_input_tokens, input_tokens, cache_read_tokens) {
+        (Some(non_cached_input_tokens), _, _) => Some(*non_cached_input_tokens),
+        (None, Some(input_tokens), None) => Some(*input_tokens),
         (None, Some(input_tokens), Some(cache_read_tokens))
             if input_tokens >= cache_read_tokens =>
         {
+            Some(input_tokens - cache_read_tokens)
+        }
+        _ => None,
+    };
+
+    if let Some(non_cached_input_tokens) = non_cached_input_tokens {
+        let cache_write_tokens = cache_write_tokens.unwrap_or(0);
+        if cache_write_tokens <= non_cached_input_tokens {
             cost += cost_for_tokens(
-                input_tokens - cache_read_tokens,
+                non_cached_input_tokens - cache_write_tokens,
                 price_schedule.input_tokens_per_million,
             );
+            cost += cost_for_tokens(
+                cache_write_tokens,
+                price_schedule.cache_write_tokens_per_million,
+            );
+        } else {
+            reasons.push(IncompleteCostReason::MissingTokenCategory {
+                token_category: "Non-Cached Input Tokens".to_owned(),
+            });
         }
-        _ => reasons.push(IncompleteCostReason::MissingTokenCategory {
+    } else {
+        if let Some(cache_write_tokens) = cache_write_tokens {
+            cost += cost_for_tokens(
+                *cache_write_tokens,
+                price_schedule.cache_write_tokens_per_million,
+            );
+        }
+        reasons.push(IncompleteCostReason::MissingTokenCategory {
             token_category: "Non-Cached Input Tokens".to_owned(),
-        }),
+        });
     }
 
     if let Some(cache_read_tokens) = cache_read_tokens {
@@ -135,28 +167,50 @@ pub fn price_session(codex_session: &CodexSession, price_catalog: &PriceCatalog)
         );
     }
 
-    if let Some(cache_write_tokens) = cache_write_tokens {
-        cost += cost_for_tokens(
-            *cache_write_tokens,
-            price_schedule.cache_write_tokens_per_million,
-        );
-    }
-
-    if let Some(output_tokens) = output_tokens {
-        cost += cost_for_tokens(*output_tokens, price_schedule.output_tokens_per_million);
-    } else {
-        reasons.push(IncompleteCostReason::MissingTokenCategory {
-            token_category: "Output Tokens".to_owned(),
-        });
-    }
-
-    if let Some(reasoning_output_tokens) = reasoning_output_tokens {
-        cost += cost_for_tokens(
-            *reasoning_output_tokens,
-            price_schedule
-                .reasoning_output_tokens_per_million
-                .unwrap_or(price_schedule.output_tokens_per_million),
-        );
+    match (output_tokens, reasoning_output_tokens) {
+        (Some(output_tokens), Some(reasoning_output_tokens))
+            if price_schedule.reasoning_output_tokens_per_million.is_some()
+                && reasoning_output_tokens <= output_tokens =>
+        {
+            cost += cost_for_tokens(
+                output_tokens - reasoning_output_tokens,
+                price_schedule.output_tokens_per_million,
+            );
+            cost += cost_for_tokens(
+                *reasoning_output_tokens,
+                price_schedule
+                    .reasoning_output_tokens_per_million
+                    .expect("checked distinct reasoning output price"),
+            );
+        }
+        (Some(output_tokens), Some(reasoning_output_tokens))
+            if price_schedule.reasoning_output_tokens_per_million.is_some()
+                && reasoning_output_tokens > output_tokens =>
+        {
+            cost += cost_for_tokens(*output_tokens, price_schedule.output_tokens_per_million);
+            reasons.push(IncompleteCostReason::MissingTokenCategory {
+                token_category: "Output Tokens".to_owned(),
+            });
+        }
+        (Some(output_tokens), _) => {
+            cost += cost_for_tokens(*output_tokens, price_schedule.output_tokens_per_million);
+        }
+        (None, Some(reasoning_output_tokens)) => {
+            cost += cost_for_tokens(
+                *reasoning_output_tokens,
+                price_schedule
+                    .reasoning_output_tokens_per_million
+                    .unwrap_or(price_schedule.output_tokens_per_million),
+            );
+            reasons.push(IncompleteCostReason::MissingTokenCategory {
+                token_category: "Output Tokens".to_owned(),
+            });
+        }
+        (None, None) => {
+            reasons.push(IncompleteCostReason::MissingTokenCategory {
+                token_category: "Output Tokens".to_owned(),
+            });
+        }
     }
 
     if reasons.is_empty() {
@@ -200,7 +254,7 @@ mod tests {
     use crate::session::{CodexSession, TokenTotals};
 
     #[test]
-    fn calculates_united_states_dollar_cost_with_reasoning_output_tokens() {
+    fn calculates_united_states_dollar_cost_without_double_counting_subtotals() {
         let codex_session = test_session(TokenTotals {
             input_tokens: Some(1_000_000),
             non_cached_input_tokens: Some(800_000),
@@ -216,7 +270,7 @@ mod tests {
         assert_eq!(
             cost_state,
             CostState::Complete {
-                united_states_dollar_cost: Decimal::from_str_exact("7.150").unwrap()
+                united_states_dollar_cost: Decimal::from_str_exact("19.100").unwrap()
             }
         );
         assert_eq!(
@@ -255,7 +309,7 @@ mod tests {
         assert_eq!(
             price_session(&codex_session, &PriceCatalog::bundled()),
             CostState::Partial {
-                known_united_states_dollar_cost: Decimal::from_str_exact("1.250").unwrap(),
+                known_united_states_dollar_cost: Decimal::from_str_exact("5.000").unwrap(),
                 reasons: vec![IncompleteCostReason::MissingTokenCategory {
                     token_category: "Output Tokens".to_owned()
                 }]

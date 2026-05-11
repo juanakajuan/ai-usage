@@ -141,7 +141,7 @@ The daily, weekly, monthly, and all-time reporting periods shown together in the
 _Avoid_: tabs, views
 
 **Session Detail**:
-A selected reporting period's newest-first list of Codex sessions with time, model, cost status, and token totals.
+A selected reporting period's newest-first list of Codex sessions with time, model, price schedule summary, cost status, and token totals.
 _Avoid_: raw log, request explorer
 
 **Reload**:
@@ -156,9 +156,9 @@ _Avoid_: generic monochrome, bright dashboard colors
 Terminal colors that follow the current terminal theme when available and fall back to the Matte Box palette when needed.
 _Avoid_: hardcoded colors, unmanaged colors
 
-**Trend Bar**:
-A compact inline visual comparison of usage across recent reporting periods.
-_Avoid_: chart, graph, visualization
+**Period Cost Change**:
+A compact comparison between a Headline Period's known United States Dollar Cost and the previous matching Reporting Period.
+_Avoid_: trend bar, chart, graph, visualization
 
 **All-Time Detail**:
 A month-first breakdown of all available Codex usage.
@@ -205,7 +205,7 @@ The final directory name used as the compact display form of project context.
 _Avoid_: full path, repository slug
 
 **Expanded Session Detail**:
-A focused session view with full project path, token category breakdown, model, price schedule match, and incomplete reasons.
+A focused session view with full project path, token category breakdown, model, price schedule match, price schedule rates, and incomplete reasons.
 _Avoid_: raw transcript, prompt viewer
 
 **Cost Display**:
@@ -252,7 +252,7 @@ _Avoid_: app version, price catalog version
 - **Reload** updates the **Usage Summary** from the **Current Source State**.
 - The terminal interface uses the **Matte Box Palette** for its visual direction.
 - The terminal interface prefers **Theme-Aware Colors** over hardcoded colors.
-- **Trend Bars** support the numeric **Usage Summary** without replacing headline totals.
+- **Period Cost Changes** support the numeric **Usage Summary** without replacing headline totals.
 - The all-time **Headline Period** uses **All-Time Detail** rather than a flat session list.
 - **JSON Output** represents the same derived usage information as the terminal **Usage Summary**.
 - The first version supports **Offline Usage** only.
@@ -348,7 +348,7 @@ _Avoid_: app version, price catalog version
 > **Domain expert:** "No. Prefer **Theme-Aware Colors** with a **Matte Box Palette** fallback."
 >
 > **Developer:** "Should v1 be numbers only?"
-> **Domain expert:** "No. Use **Trend Bars** as compact supporting context while keeping headline totals numeric."
+> **Domain expert:** "No. Use **Period Cost Changes** as compact supporting context while keeping headline totals numeric."
 >
 > **Developer:** "Should all-time detail list every Codex session?"
 > **Domain expert:** "No. Use **All-Time Detail** so long histories are grouped by month first."
@@ -417,7 +417,7 @@ _Avoid_: app version, price catalog version
 - "refresh" can mean network sync or rereading local data; resolved: **Reload** rereads the current usage source from disk.
 - "modern minimalist" can mean generic monochrome or a specific system palette; resolved: use the **Matte Box Palette**.
 - "theme colors" can mean live terminal colors or fixed hex values; resolved: use **Theme-Aware Colors** with a Matte Box fallback.
-- "chart" can mean a large graph or compact context; resolved: v1 uses **Trend Bars** only.
+- "chart" can mean a large graph or compact context; resolved: v1 uses **Period Cost Changes** rather than charts.
 - "all-time detail" can mean a complete session list or a grouped history; resolved: **All-Time Detail** is month-first.
 - "export" can mean machine-readable output or document reporting; resolved: v1 supports **JSON Output** only.
 - "offline" can mean no telemetry or no network at all; resolved: **Offline Usage** means no network access in v1.
