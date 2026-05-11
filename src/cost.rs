@@ -2,7 +2,7 @@
 
 use rust_decimal::Decimal;
 
-use crate::price_catalog::{PriceCatalog, cost_for_tokens};
+use crate::price_catalog::{PriceCatalog, PriceSchedule, cost_for_tokens};
 use crate::session::{CodexSession, TokenTotals};
 
 /// A Codex Session with cost state attached.
@@ -76,16 +76,7 @@ pub fn price_sessions(
         .map(|codex_session| {
             let price_schedule_match = price_catalog
                 .effective_price_schedule(&codex_session.model, codex_session.session_start_time)
-                .map(|price_schedule| PriceScheduleMatch {
-                    model: price_schedule.model.clone(),
-                    effective_date: price_schedule.effective_date,
-                    input_tokens_per_million: price_schedule.input_tokens_per_million,
-                    cache_read_tokens_per_million: price_schedule.cache_read_tokens_per_million,
-                    cache_write_tokens_per_million: price_schedule.cache_write_tokens_per_million,
-                    output_tokens_per_million: price_schedule.output_tokens_per_million,
-                    reasoning_output_tokens_per_million: price_schedule
-                        .reasoning_output_tokens_per_million,
-                });
+                .map(price_schedule_match_from_schedule);
             let cost_state = price_session(&codex_session, price_catalog);
             PricedCodexSession {
                 codex_session,
@@ -94,6 +85,18 @@ pub fn price_sessions(
             }
         })
         .collect()
+}
+
+fn price_schedule_match_from_schedule(price_schedule: &PriceSchedule) -> PriceScheduleMatch {
+    PriceScheduleMatch {
+        model: price_schedule.model.clone(),
+        effective_date: price_schedule.effective_date,
+        input_tokens_per_million: price_schedule.input_tokens_per_million,
+        cache_read_tokens_per_million: price_schedule.cache_read_tokens_per_million,
+        cache_write_tokens_per_million: price_schedule.cache_write_tokens_per_million,
+        output_tokens_per_million: price_schedule.output_tokens_per_million,
+        reasoning_output_tokens_per_million: price_schedule.reasoning_output_tokens_per_million,
+    }
 }
 
 /// Calculates Historical Cost for a Codex Session.
@@ -251,7 +254,7 @@ mod tests {
     use chrono::TimeZone;
 
     use super::*;
-    use crate::session::{CodexSession, TokenTotals};
+    use crate::session::{AiCodingAgent, CodexSession, TokenTotals};
 
     #[test]
     fn calculates_united_states_dollar_cost_without_double_counting_subtotals() {
@@ -319,9 +322,11 @@ mod tests {
 
     fn test_session(token_totals: TokenTotals) -> CodexSession {
         CodexSession {
+            ai_coding_agent: AiCodingAgent::Codex,
             source_path: "session.jsonl".into(),
             session_start_time: chrono::Utc.with_ymd_and_hms(2026, 5, 10, 10, 0, 0).unwrap(),
             model: "gpt-5.5".to_owned(),
+            reasoning_effort: None,
             project_path: None,
             project_name: None,
             is_active: false,

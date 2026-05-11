@@ -1,4 +1,4 @@
-//! Structured parsing for Codex Session Files.
+//! Structured parsing for local AI Coding Agent session files.
 
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
@@ -14,21 +14,56 @@ use crate::usage_source::UsageSourceResolution;
 /// Parsed usage and Data Quality Notices from a Usage Source.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ParsedUsage {
-    /// Codex Sessions built from readable Codex Session Files.
+    /// AI Coding Agent Sessions built from readable session files.
     pub codex_sessions: Vec<CodexSession>,
     /// Notices describing records excluded from Derived Summaries.
     pub data_quality_notices: Vec<DataQualityNotice>,
 }
 
-/// A single Codex work session derived from one Codex Session File.
+/// AI Coding Agent that produced a session file.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AiCodingAgent {
+    /// OpenAI Codex CLI.
+    Codex,
+    /// Pi Coding Agent.
+    Pi,
+}
+
+impl AiCodingAgent {
+    /// Display label for Session Detail columns.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Codex => "Codex",
+            Self::Pi => "Pi",
+        }
+    }
+}
+
+impl CodexSession {
+    /// Compact Model label for Session Detail columns.
+    pub fn compact_model_label(&self) -> String {
+        match self.reasoning_effort.as_deref() {
+            Some(reasoning_effort) if !reasoning_effort.is_empty() => {
+                format!("{} · {}", self.model, reasoning_effort)
+            }
+            _ => self.model.clone(),
+        }
+    }
+}
+
+/// A single work session derived from one AI Coding Agent session file.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodexSession {
+    /// AI Coding Agent that produced the session.
+    pub ai_coding_agent: AiCodingAgent,
     /// Source file path.
     pub source_path: PathBuf,
     /// Session Start Time.
     pub session_start_time: DateTime<Utc>,
     /// Exact recorded Model name.
     pub model: String,
+    /// Source-recorded reasoning effort or thinking level when available.
+    pub reasoning_effort: Option<String>,
     /// Full project path when available.
     pub project_path: Option<PathBuf>,
     /// Compact Project Name when available.
@@ -92,18 +127,24 @@ struct CodexRecord {
     payload: Value,
 }
 
-/// Reads Codex Sessions from the resolved Usage Source.
+/// Reads AI Coding Agent Sessions from the resolved Usage Source.
 pub fn read_codex_sessions(
     usage_source_resolution: &UsageSourceResolution,
 ) -> std::io::Result<ParsedUsage> {
     let mut parsed_usage = ParsedUsage::default();
 
-    let UsageSourceResolution::Readable { path, .. } = usage_source_resolution else {
+    let UsageSourceResolution::Readable { path, is_custom } = usage_source_resolution else {
         return Ok(parsed_usage);
     };
 
-    for source_path in codex_session_file_paths(path)? {
-        match parse_codex_session_file(&source_path) {
+    let session_file_paths = if *is_custom {
+        session_file_paths(path)?
+    } else {
+        default_session_file_paths(path)?
+    };
+
+    for source_path in session_file_paths {
+        match parse_session_file(&source_path) {
             Ok((Some(codex_session), mut data_quality_notices)) => {
                 parsed_usage.codex_sessions.push(codex_session);
                 parsed_usage
@@ -125,7 +166,17 @@ pub fn read_codex_sessions(
     Ok(parsed_usage)
 }
 
-fn codex_session_file_paths(path: &Path) -> std::io::Result<Vec<PathBuf>> {
+fn default_session_file_paths(path: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut file_paths = session_file_paths(path)?;
+    let pi_sessions_directory = crate::usage_source::default_pi_sessions_directory();
+    if pi_sessions_directory != path && fs::metadata(&pi_sessions_directory).is_ok() {
+        file_paths.extend(session_file_paths(&pi_sessions_directory)?);
+    }
+    file_paths.sort();
+    Ok(file_paths)
+}
+
+fn session_file_paths(path: &Path) -> std::io::Result<Vec<PathBuf>> {
     if fs::metadata(path)?.is_file() {
         return Ok(vec![path.to_path_buf()]);
     }
@@ -145,6 +196,15 @@ fn codex_session_file_paths(path: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(file_paths)
 }
 
+fn parse_session_file(
+    source_path: &Path,
+) -> std::io::Result<(Option<CodexSession>, Vec<DataQualityNotice>)> {
+    if let Some(parsed_pi_session) = parse_pi_session_file(source_path)? {
+        return Ok(parsed_pi_session);
+    }
+    parse_codex_session_file(source_path)
+}
+
 fn parse_codex_session_file(
     source_path: &Path,
 ) -> std::io::Result<(Option<CodexSession>, Vec<DataQualityNotice>)> {
@@ -153,6 +213,7 @@ fn parse_codex_session_file(
     let mut data_quality_notices = Vec::new();
     let mut session_start_time = None;
     let mut model = None;
+    let mut reasoning_effort = None;
     let mut project_path = None;
     let mut final_token_snapshot = None;
     let mut saw_completion_record = false;
@@ -190,6 +251,23 @@ fn parse_codex_session_file(
                         .get("model")
                         .and_then(Value::as_str)
                         .map(str::to_owned);
+                }
+                if reasoning_effort.is_none() {
+                    reasoning_effort = record
+                        .payload
+                        .get("effort")
+                        .or_else(|| record.payload.get("reasoning_effort"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            record
+                                .payload
+                                .get("collaboration_mode")
+                                .and_then(|collaboration_mode| collaboration_mode.get("settings"))
+                                .and_then(|settings| settings.get("reasoning_effort"))
+                                .and_then(Value::as_str)
+                                .map(str::to_owned)
+                        });
                 }
                 if project_path.is_none() {
                     project_path = record
@@ -231,17 +309,15 @@ fn parse_codex_session_file(
     };
 
     let session_start_time = session_start_time.unwrap_or_else(Utc::now);
-    let project_name = project_path
-        .as_ref()
-        .and_then(|path| path.file_name())
-        .and_then(|name| name.to_str())
-        .map(str::to_owned);
+    let project_name = project_name_from_path(project_path.as_deref());
 
     Ok((
         Some(CodexSession {
+            ai_coding_agent: AiCodingAgent::Codex,
             source_path: source_path.to_path_buf(),
             session_start_time,
             model: model.unwrap_or_else(|| "unknown".to_owned()),
+            reasoning_effort,
             project_path,
             project_name,
             is_active: !saw_completion_record,
@@ -249,6 +325,149 @@ fn parse_codex_session_file(
         }),
         data_quality_notices,
     ))
+}
+
+fn parse_pi_session_file(
+    source_path: &Path,
+) -> std::io::Result<Option<(Option<CodexSession>, Vec<DataQualityNotice>)>> {
+    let file = File::open(source_path)?;
+    let reader = BufReader::new(file);
+    let mut data_quality_notices = Vec::new();
+    let mut is_pi_session = false;
+    let mut session_start_time = None;
+    let mut model = None;
+    let mut reasoning_effort = None;
+    let mut project_path = None;
+    let mut token_totals = TokenTotals::default();
+    let mut saw_assistant_message = false;
+
+    for (line_index, line_result) in reader.lines().enumerate() {
+        let line_number = line_index + 1;
+        let line = line_result?;
+        let Ok(record) = serde_json::from_str::<Value>(&line) else {
+            data_quality_notices.push(notice(
+                source_path,
+                Some(line_number),
+                DataQualityNoticeKind::ParseProblem,
+                "invalid JSONL record",
+            ));
+            continue;
+        };
+
+        match record.get("type").and_then(Value::as_str) {
+            Some("session") => {
+                is_pi_session = true;
+                session_start_time = record.get("timestamp").and_then(parse_time_value);
+                project_path = record.get("cwd").and_then(Value::as_str).map(PathBuf::from);
+            }
+            Some("message") if is_pi_session => {
+                let Some(message) = record.get("message") else {
+                    continue;
+                };
+                if message.get("role").and_then(Value::as_str) == Some("assistant") {
+                    saw_assistant_message = true;
+                    model = message
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .or(model);
+                    reasoning_effort = message
+                        .get("reasoningEffort")
+                        .or_else(|| message.get("reasoning_effort"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .or(reasoning_effort);
+                    if let Some(usage) = message.get("usage") {
+                        add_pi_usage(&mut token_totals, usage);
+                    }
+                }
+            }
+            Some("model_change") if is_pi_session => {
+                model = record
+                    .get("modelId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or(model);
+            }
+            Some("thinking_level_change") if is_pi_session => {
+                reasoning_effort = record
+                    .get("thinkingLevel")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or(reasoning_effort);
+            }
+            Some(_) if is_pi_session => {}
+            _ => {}
+        }
+    }
+
+    if !is_pi_session {
+        return Ok(None);
+    }
+
+    if !saw_assistant_message || token_totals.total_tokens.is_none() {
+        data_quality_notices.push(notice(
+            source_path,
+            None,
+            DataQualityNoticeKind::MissingTokenSnapshot,
+            "no usable Token Snapshot found",
+        ));
+        return Ok(Some((None, data_quality_notices)));
+    }
+
+    let session_start_time = session_start_time.unwrap_or_else(Utc::now);
+    let project_name = project_name_from_path(project_path.as_deref());
+
+    Ok(Some((
+        Some(CodexSession {
+            ai_coding_agent: AiCodingAgent::Pi,
+            source_path: source_path.to_path_buf(),
+            session_start_time,
+            model: model.unwrap_or_else(|| "unknown".to_owned()),
+            reasoning_effort,
+            project_path,
+            project_name,
+            is_active: false,
+            token_totals,
+        }),
+        data_quality_notices,
+    )))
+}
+
+fn add_pi_usage(token_totals: &mut TokenTotals, usage: &Value) {
+    add_optional_u64(&mut token_totals.input_tokens, get_u64(usage, "input"));
+    add_optional_u64(&mut token_totals.output_tokens, get_u64(usage, "output"));
+    add_optional_u64(
+        &mut token_totals.cache_read_tokens,
+        get_u64(usage, "cacheRead"),
+    );
+    add_optional_u64(
+        &mut token_totals.cache_write_tokens,
+        get_u64(usage, "cacheWrite"),
+    );
+    add_optional_u64(
+        &mut token_totals.total_tokens,
+        get_u64(usage, "totalTokens").or_else(|| {
+            match (get_u64(usage, "input"), get_u64(usage, "output")) {
+                (Some(input_tokens), Some(output_tokens)) => Some(input_tokens + output_tokens),
+                _ => None,
+            }
+        }),
+    );
+
+    token_totals.non_cached_input_tokens =
+        match (token_totals.input_tokens, token_totals.cache_read_tokens) {
+            (Some(input_tokens), Some(cache_read_tokens)) if input_tokens >= cache_read_tokens => {
+                Some(input_tokens - cache_read_tokens)
+            }
+            _ => token_totals.non_cached_input_tokens,
+        };
+}
+
+fn add_optional_u64(total: &mut Option<u64>, value: Option<u64>) {
+    if let Some(value) = value {
+        *total = Some(total.unwrap_or(0) + value);
+    }
 }
 
 fn token_totals_from_info(info: &Value) -> Option<TokenTotals> {
@@ -284,6 +503,13 @@ fn get_u64(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(Value::as_u64)
 }
 
+fn project_name_from_path(project_path: Option<&Path>) -> Option<String> {
+    project_path
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+}
+
 fn parse_time_value(value: &Value) -> Option<DateTime<Utc>> {
     value.as_str()?.parse::<DateTime<Utc>>().ok()
 }
@@ -316,7 +542,7 @@ mod tests {
             &session_file_path,
             &[
                 r#"{"timestamp":"2026-05-10T10:00:00Z","type":"session_meta","payload":{"timestamp":"2026-05-10T09:59:00Z","cwd":"/home/person/project"}}"#,
-                r#"{"timestamp":"2026-05-10T10:00:01Z","type":"turn_context","payload":{"model":"gpt-5.5","cwd":"/home/person/project"}}"#,
+                r#"{"timestamp":"2026-05-10T10:00:01Z","type":"turn_context","payload":{"model":"gpt-5.5","effort":"low","cwd":"/home/person/project"}}"#,
                 r#"{"timestamp":"2026-05-10T10:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"secret prompt"}]}}"#,
                 r#"{"timestamp":"2026-05-10T10:00:03Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":250,"cache_creation_input_tokens":100,"output_tokens":300,"reasoning_output_tokens":20,"total_tokens":1300}}}}"#,
                 r#"{"timestamp":"2026-05-10T10:00:04Z","type":"event_msg","payload":{"type":"task_complete"}}"#,
@@ -331,7 +557,10 @@ mod tests {
 
         assert_eq!(parsed_usage.codex_sessions.len(), 1);
         let codex_session = &parsed_usage.codex_sessions[0];
+        assert_eq!(codex_session.ai_coding_agent, AiCodingAgent::Codex);
         assert_eq!(codex_session.model, "gpt-5.5");
+        assert_eq!(codex_session.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(codex_session.compact_model_label(), "gpt-5.5 · low");
         assert_eq!(codex_session.project_name.as_deref(), Some("project"));
         assert!(!codex_session.is_active);
         assert_eq!(
@@ -375,6 +604,42 @@ mod tests {
             Some(190)
         );
         assert!(parsed_usage.codex_sessions[0].is_active);
+    }
+
+    #[test]
+    fn parses_pi_session_file_by_summing_assistant_usage() {
+        let temporary_directory = tempfile::tempdir().expect("temporary directory");
+        let session_file_path = temporary_directory.path().join("pi-session.jsonl");
+        write_session_file(
+            &session_file_path,
+            &[
+                r#"{"type":"session","version":3,"id":"session-id","timestamp":"2026-05-10T09:59:00Z","cwd":"/home/person/project"}"#,
+                r#"{"type":"message","id":"first","parentId":null,"timestamp":"2026-05-10T10:00:00Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":1000,"output":300,"cacheRead":250,"cacheWrite":100,"totalTokens":1300,"cost":{"total":0.01}},"stopReason":"stop","content":[]}}"#,
+                r#"{"type":"model_change","id":"model","parentId":"first","timestamp":"2026-05-10T10:01:00Z","provider":"anthropic","modelId":"claude-opus-4-5"}"#,
+                r#"{"type":"thinking_level_change","id":"thinking","parentId":"model","timestamp":"2026-05-10T10:01:30Z","thinkingLevel":"high"}"#,
+                r#"{"type":"message","id":"second","parentId":"thinking","timestamp":"2026-05-10T10:02:00Z","message":{"role":"assistant","provider":"anthropic","model":"claude-opus-4-5","usage":{"input":500,"output":200,"cacheRead":50,"cacheWrite":25,"totalTokens":700,"cost":{"total":0.02}},"stopReason":"stop","content":[]}}"#,
+            ],
+        );
+
+        let parsed_usage = read_codex_sessions(&UsageSourceResolution::Readable {
+            path: session_file_path,
+            is_custom: true,
+        })
+        .expect("parsed usage");
+
+        assert_eq!(parsed_usage.codex_sessions.len(), 1);
+        let pi_session = &parsed_usage.codex_sessions[0];
+        assert_eq!(pi_session.ai_coding_agent, AiCodingAgent::Pi);
+        assert_eq!(pi_session.model, "claude-opus-4-5");
+        assert_eq!(pi_session.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(pi_session.compact_model_label(), "claude-opus-4-5 · high");
+        assert_eq!(pi_session.project_name.as_deref(), Some("project"));
+        assert_eq!(pi_session.token_totals.input_tokens, Some(1500));
+        assert_eq!(pi_session.token_totals.output_tokens, Some(500));
+        assert_eq!(pi_session.token_totals.cache_read_tokens, Some(300));
+        assert_eq!(pi_session.token_totals.cache_write_tokens, Some(125));
+        assert_eq!(pi_session.token_totals.non_cached_input_tokens, Some(1200));
+        assert_eq!(pi_session.token_totals.total_tokens, Some(2000));
     }
 
     #[test]

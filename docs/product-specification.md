@@ -1,11 +1,11 @@
 # AI Usage Product Specification
 
-AI Usage is a Rust terminal application for understanding the United States dollar cost of local Codex usage.
+AI Usage is a Rust terminal application for understanding the United States dollar cost of local AI coding agent usage.
 
 ## First Version Scope
 
-- Track Codex usage only.
-- Read local Codex session JSONL files from the Codex sessions directory.
+- Track Codex CLI and Pi Coding Agent usage.
+- Read local Codex session JSONL files from the Codex sessions directory and Pi session JSONL files from the Pi sessions directory.
 - Support a custom source path with `--usage-source`.
 - Avoid persistent app configuration and avoid an app-owned usage database.
 - Work fully offline with a bundled local price catalog.
@@ -13,10 +13,10 @@ AI Usage is a Rust terminal application for understanding the United States doll
 
 ## Source Semantics
 
-- Treat local Codex session files as the authoritative usage source.
-- Treat each session file as one Codex session.
+- Treat local AI coding agent session files as the authoritative usage source.
+- Treat each session file as one session and preserve which AI coding agent produced it.
 - Use the session start time for daily, weekly, monthly, and all-time grouping.
-- Use the final usable token snapshot in a session file for session totals.
+- Use the final usable Codex token snapshot for Codex session totals; sum Pi assistant-message usage entries for Pi session totals.
 - Include active sessions with the latest available token snapshot and a visible active marker.
 - Skip unknown or malformed records, preserve partial results, and show data quality notices.
 - Never infer prompt content or estimate missing token counts from message text.
@@ -46,7 +46,7 @@ AI Usage is a Rust terminal application for understanding the United States doll
 - Show selected-period session detail sorted newest first.
 - Show the price-per-million-token schedule summary used for each session.
 - Show all-time detail grouped by month first.
-- Show project names in compact session lists and full paths only in expanded detail.
+- Show the AI coding agent label and project names in compact session lists, with full paths only in expanded detail.
 - Exclude prompt and conversation content from every terminal view.
 
 ## Keyboard Model

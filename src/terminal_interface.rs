@@ -32,8 +32,8 @@ const MATTE_BOX_SUCCESS: Color = Color::Rgb(134, 174, 124);
 const MATTE_BOX_WARNING: Color = Color::Rgb(211, 151, 98);
 const MATTE_BOX_SELECTED_BACKGROUND: Color = Color::Rgb(37, 37, 34);
 const SESSION_TABLE_COLUMN_SPACING: u16 = 1;
-const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 8] = [8, 8, 18, 28, 9, 14, 13, 12];
-const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 8] = [1, 1, 2, 4, 1, 2, 1, 1];
+const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 9] = [8, 6, 7, 17, 28, 8, 11, 12, 10];
+const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 9] = [1, 1, 1, 2, 4, 1, 2, 1, 1];
 
 /// Terminal actions requested by keyboard input.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -430,6 +430,7 @@ fn session_panel(
     .header(
         Row::new(vec![
             Cell::from("Status"),
+            Cell::from("Agent"),
             Cell::from("Time"),
             Cell::from("Model"),
             Cell::from("Price / Million"),
@@ -451,7 +452,7 @@ fn session_panel(
 }
 
 /// Builds Session Detail table column widths that consume the full available panel width.
-fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 8] {
+fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 9] {
     let session_table_column_gap_count =
         SESSION_TABLE_MINIMUM_COLUMN_WIDTHS.len().saturating_sub(1) as u16;
     let spacing_width = SESSION_TABLE_COLUMN_SPACING * session_table_column_gap_count;
@@ -516,6 +517,7 @@ fn session_table_rows(
         return vec![Row::new(vec![
             Cell::from(""),
             Cell::from(""),
+            Cell::from(""),
             Cell::from("No sessions for selected period").style(muted_style()),
             Cell::from(""),
             Cell::from(""),
@@ -551,8 +553,9 @@ fn session_table_rows(
             Row::new(vec![
                 Cell::from(session_status_label(priced_session))
                     .style(session_status_style(priced_session)),
+                Cell::from(priced_session.codex_session.ai_coding_agent.label()),
                 Cell::from(session_time_label(priced_session)),
-                Cell::from(priced_session.codex_session.model.clone()),
+                Cell::from(priced_session.codex_session.compact_model_label()),
                 Cell::from(session_pricing_label(
                     priced_session.price_schedule_match.as_ref(),
                 )),
@@ -672,7 +675,14 @@ pub fn render_expanded_session_detail_lines(priced_session: &PricedCodexSession)
 
     let mut lines = vec![
         format!("Project Path: {project_path}"),
-        format!("Model: {}", priced_session.codex_session.model),
+        format!(
+            "AI Coding Agent: {}",
+            priced_session.codex_session.ai_coding_agent.label()
+        ),
+        format!(
+            "Model: {}",
+            priced_session.codex_session.compact_model_label()
+        ),
         format!("Price Schedule: {price_schedule}"),
     ];
     lines.extend(price_schedule_rate_lines(
@@ -737,10 +747,11 @@ fn render_headline_period_row(headline_period: &HeadlinePeriod) -> String {
 
 fn compact_session_row(priced_session: &PricedCodexSession, project_name: &str) -> String {
     format!(
-        "{:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        "{:<6}  {:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
         session_status_label(priced_session),
+        priced_session.codex_session.ai_coding_agent.label(),
         session_time_label(priced_session),
-        priced_session.codex_session.model,
+        priced_session.codex_session.compact_model_label(),
         session_pricing_label(priced_session.price_schedule_match.as_ref()),
         session_cost_label(&priced_session.cost_state),
         project_name,
@@ -1010,14 +1021,23 @@ fn data_quality_summary_label(data_quality_notice_count: usize) -> String {
 
 fn session_table_header() -> String {
     format!(
-        "{:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
-        "Status", "Time", "Model", "Price / Million", "Cost", "Project", "Tokens", "Quality"
+        "{:<6}  {:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        "Status",
+        "Agent",
+        "Time",
+        "Model",
+        "Price / Million",
+        "Cost",
+        "Project",
+        "Tokens",
+        "Quality"
     )
 }
 
 fn session_table_separator() -> String {
     format!(
-        "{:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        "{:<6}  {:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        "──────",
         "──────",
         "───────",
         "─────────────────",
@@ -1039,7 +1059,9 @@ mod tests {
     use crate::reporting_period::{
         HeadlinePeriod, PeriodCostState, SummaryTotals, build_derived_summary_at,
     };
-    use crate::session::{CodexSession, DataQualityNotice, DataQualityNoticeKind, TokenTotals};
+    use crate::session::{
+        AiCodingAgent, CodexSession, DataQualityNotice, DataQualityNoticeKind, TokenTotals,
+    };
     use crate::usage_source::UsageSourceResolution;
 
     #[test]
@@ -1226,6 +1248,55 @@ mod tests {
             session_table_constraint_width(&constraints[3])
                 > SESSION_TABLE_MINIMUM_COLUMN_WIDTHS[3]
         );
+    }
+
+    #[test]
+    fn session_table_has_ai_coding_agent_column_header() {
+        let derived_summary = build_derived_summary_at(
+            UsageSourceResolution::Readable {
+                path: "source".into(),
+                is_custom: false,
+            },
+            vec![priced_session(
+                "agent-header",
+                false,
+                CostState::Complete {
+                    united_states_dollar_cost: Decimal::from(1),
+                },
+            )],
+            Vec::new(),
+            chrono::Local
+                .with_ymd_and_hms(2026, 5, 10, 12, 0, 0)
+                .unwrap(),
+        );
+        let terminal_interface_state = TerminalInterfaceState::new(&derived_summary);
+        let terminal_backend = ratatui::backend::TestBackend::new(120, 8);
+        let mut terminal = Terminal::new(terminal_backend).expect("terminal");
+
+        terminal
+            .draw(|frame| {
+                let session_area = Rect::new(0, 0, 120, 8);
+                frame.render_widget(
+                    session_panel(&derived_summary, &terminal_interface_state, session_area),
+                    session_area,
+                );
+            })
+            .expect("draw session table");
+
+        let terminal_output = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+
+        let status_header_index = terminal_output.find("Status").expect("status header");
+        let agent_header_index = terminal_output.find("Agent").expect("agent header");
+        let time_header_index = terminal_output.find("Time").expect("time header");
+
+        assert!(status_header_index < agent_header_index);
+        assert!(agent_header_index < time_header_index);
     }
 
     #[test]
@@ -1432,9 +1503,11 @@ mod tests {
         let minute = if project_name == "newer" { 2 } else { 1 };
         PricedCodexSession {
             codex_session: CodexSession {
+                ai_coding_agent: AiCodingAgent::Codex,
                 source_path: format!("{project_name}.jsonl").into(),
                 session_start_time: Utc.with_ymd_and_hms(2026, 5, 10, 10, minute, 0).unwrap(),
                 model: "gpt-5.5".to_owned(),
+                reasoning_effort: None,
                 project_path: Some(format!("/tmp/{project_name}").into()),
                 project_name: Some(project_name.to_owned()),
                 is_active,

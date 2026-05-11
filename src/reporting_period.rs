@@ -316,11 +316,9 @@ fn add_token_totals(total: &mut TokenTotals, current: &TokenTotals) {
 }
 
 fn add_optional(left: Option<u64>, right: Option<u64>) -> Option<u64> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left + right),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
+    match right {
+        Some(right) => Some(left.unwrap_or(0) + right),
+        None => left,
     }
 }
 
@@ -367,7 +365,7 @@ mod tests {
 
     use super::*;
     use crate::cost::CostState;
-    use crate::session::{CodexSession, TokenTotals};
+    use crate::session::{AiCodingAgent, CodexSession, TokenTotals};
 
     #[test]
     fn produces_headline_periods_with_local_calendar_membership() {
@@ -522,9 +520,11 @@ mod tests {
     ) -> PricedCodexSession {
         PricedCodexSession {
             codex_session: CodexSession {
+                ai_coding_agent: AiCodingAgent::Codex,
                 source_path: format!("{project_name}.jsonl").into(),
                 session_start_time,
                 model: "gpt-5.5".to_owned(),
+                reasoning_effort: None,
                 project_path: Some(format!("/tmp/{project_name}").into()),
                 project_name: Some(project_name.to_owned()),
                 is_active: false,

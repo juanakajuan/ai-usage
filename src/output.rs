@@ -94,15 +94,19 @@ pub enum JsonPeriodCostState {
     },
 }
 
-/// JSON representation of one Codex Session in Session Detail.
+/// JSON representation of one AI Coding Agent Session in Session Detail.
 #[derive(Clone, Debug, Serialize)]
 pub struct JsonSessionDetail {
-    /// Source Codex Session File path.
+    /// AI Coding Agent that produced the session.
+    pub ai_coding_agent: String,
+    /// Source session file path.
     pub source_path: String,
     /// Session Start Time.
     pub session_start_time: String,
     /// Exact recorded Model name.
     pub model: String,
+    /// Source-recorded reasoning effort or thinking level when available.
+    pub reasoning_effort: Option<String>,
     /// Full project path when available.
     pub project_path: Option<String>,
     /// Compact Project Name when available.
@@ -296,6 +300,11 @@ fn session_detail_json(
     home_directory: Option<&Path>,
 ) -> JsonSessionDetail {
     JsonSessionDetail {
+        ai_coding_agent: priced_session
+            .codex_session
+            .ai_coding_agent
+            .label()
+            .to_owned(),
         source_path: path_json(
             &priced_session.codex_session.source_path,
             redact_paths,
@@ -303,6 +312,7 @@ fn session_detail_json(
         ),
         session_start_time: priced_session.codex_session.session_start_time.to_rfc3339(),
         model: priced_session.codex_session.model.clone(),
+        reasoning_effort: priced_session.codex_session.reasoning_effort.clone(),
         project_path: priced_session
             .codex_session
             .project_path
@@ -327,11 +337,9 @@ fn path_json(path: &Path, redact_paths: bool, home_directory: Option<&Path>) -> 
 
 fn path_separator_prefixed(path: &Path) -> String {
     let text = path.display().to_string();
-    if text.is_empty() {
-        String::new()
-    } else {
-        format!("/{text}")
-    }
+    (!text.is_empty())
+        .then(|| format!("/{text}"))
+        .unwrap_or_default()
 }
 
 fn reporting_period_kind_json(kind: &ReportingPeriodKind) -> &'static str {
@@ -406,7 +414,7 @@ mod tests {
     use super::*;
     use crate::cost::{CostState, PricedCodexSession};
     use crate::reporting_period::{PeriodCostState, SummaryTotals};
-    use crate::session::{CodexSession, DataQualityNotice, TokenTotals};
+    use crate::session::{AiCodingAgent, CodexSession, DataQualityNotice, TokenTotals};
 
     #[test]
     fn json_output_includes_schema_paths_data_quality_and_summary_parity() {
@@ -416,9 +424,11 @@ mod tests {
             .join(".codex/sessions/session.jsonl");
         let priced_session = PricedCodexSession {
             codex_session: CodexSession {
+                ai_coding_agent: AiCodingAgent::Codex,
                 source_path: source_path.clone(),
                 session_start_time: Utc.with_ymd_and_hms(2026, 5, 10, 10, 0, 0).unwrap(),
                 model: "gpt-5.5".to_owned(),
+                reasoning_effort: None,
                 project_path: Some(source_path.parent().unwrap().to_path_buf()),
                 project_name: Some("sessions".to_owned()),
                 is_active: false,
@@ -485,6 +495,10 @@ mod tests {
             source_path.parent().unwrap().display().to_string()
         );
         assert_eq!(normal_output.headline_periods[0].session_count, 1);
+        assert_eq!(
+            normal_output.headline_periods[0].session_detail[0].ai_coding_agent,
+            "Codex"
+        );
         assert_eq!(
             normal_output.headline_periods[0].known_united_states_dollar_cost,
             "2"

@@ -4,9 +4,17 @@ AI Usage helps a person understand the monetary value of their local artificial 
 
 ## Language
 
+**AI Coding Agent Usage**:
+Token usage attributed to local AI coding agent activity on this machine.
+_Avoid_: session data, logs
+
 **Codex Usage**:
 Token usage attributed to local Codex activity on this machine.
-_Avoid_: AI usage, session data, logs
+_Avoid_: generic usage, session data, logs
+
+**Pi Usage**:
+Token usage attributed to local Pi Coding Agent activity on this machine.
+_Avoid_: generic usage, session data, logs
 
 **Usage Source**:
 The authoritative location from which usage data is read.
@@ -85,8 +93,16 @@ The last usable token snapshot in a Codex session file.
 _Avoid_: summed snapshots, latest row
 
 **Model**:
-The exact model name recorded in local Codex usage data.
+The exact model name recorded in local AI coding agent usage data.
 _Avoid_: model family, provider model, normalized model
+
+**Model Configuration**:
+Source-recorded details about how a Model was run, such as reasoning effort or thinking level.
+_Avoid_: inferred mode, guessed capability tier
+
+**Compact Model Display**:
+A Session Detail rendering that combines the exact Model with available Model Configuration.
+_Avoid_: normalized model name, pricing key
 
 **Price Schedule**:
 The dated set of token prices used to calculate historical cost for a model.
@@ -141,7 +157,7 @@ The daily, weekly, monthly, and all-time reporting periods shown together in the
 _Avoid_: tabs, views
 
 **Session Detail**:
-A selected reporting period's newest-first list of Codex sessions with time, model, price schedule summary, cost status, and token totals.
+A selected reporting period's newest-first list of AI coding agent sessions with agent label, time, model, price schedule summary, cost status, and token totals.
 _Avoid_: raw log, request explorer
 
 **Reload**:
@@ -226,18 +242,22 @@ _Avoid_: app version, price catalog version
 - **Input Tokens** includes **Cache Read Tokens** and **Non-Cached Input Tokens** when those subsets are known.
 - **Total Tokens** must not double count **Cache Read Tokens** as separate from **Input Tokens**.
 - Missing token categories must preserve available token data and can make **Historical Cost** incomplete.
+- **AI Coding Agent Usage** includes **Codex Usage** and **Pi Usage** when their local session files are readable.
 - **Codex Usage** is aggregated primarily by **Codex Session**.
 - A **Codex Session** may contain lower-level usage records, but those are supporting detail rather than the primary reporting unit.
 - A **Codex Session File** is the default local representation of a **Codex Session**.
 - The default **Codex Sessions Directory** is the local Codex sessions tree under the user's Codex home directory.
 - A **Codex Session** belongs to reporting periods by **Session Start Time**.
 - A **Codex Session** uses the **Final Token Snapshot** for its token totals rather than summing token snapshots.
+- **Pi Usage** totals are summed from Pi assistant-message usage entries because Pi records per-response usage rather than Codex-style cumulative token snapshots.
 - **Non-Cached Input Tokens** can be derived from **Input Tokens** minus **Cache Read Tokens** when both are known.
 - **Historical Cost** requires a **Model** that maps unambiguously to a **Price Schedule**.
 - **Historical Cost** uses the **Effective Price Schedule** for the session start time.
 - **Unpriced Usage** is a form of **Incomplete Usage**.
 - **Reasoning Output Tokens** are preserved as detail and priced as **Output Tokens** unless a price schedule distinguishes them.
-- A **Model** must preserve the exact name recorded by Codex.
+- A **Model** must preserve the exact name recorded by the AI coding agent.
+- **Model Configuration** is shown only when the source records it; AI Usage must not infer fast mode or thinking level from the Model name.
+- **Compact Model Display** may append Model Configuration to the Model in Session Detail without changing the Model used for pricing.
 - **Price Schedules** come from the app's local **Price Catalog** in the first version.
 - **Historical Cost** is displayed as **United States Dollar Cost** in the first version.
 - A **Reporting Period** with both priceable usage and **Incomplete Usage** shows **Partial Cost** with a visible incomplete marker.
@@ -260,6 +280,7 @@ _Avoid_: app version, price catalog version
 - **Unknown Source Format** is treated as a **Parse Problem** and skipped with available path and reason detail.
 - **Data Quality Notices** summarize problems on the main screen, while **Data Quality Detail** shows paths and reasons.
 - **JSON Output** includes source paths by default and can use **Redacted Paths** when requested.
+- **Session Detail** includes the AI coding agent label for each session.
 - **Session Detail** may include **Project Context** but excludes **Prompt Content** in the first version.
 - **Session Detail** shows **Project Name** in compact lists and full project paths only in expanded detail or JSON output.
 - Pressing Enter on a selected session opens **Expanded Session Detail**.

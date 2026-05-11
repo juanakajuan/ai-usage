@@ -1,4 +1,4 @@
-//! Usage Source discovery for local Codex Session Files.
+//! Usage Source discovery for local AI Coding Agent session files.
 
 use std::env;
 use std::fs;
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 /// Result of resolving the Usage Source for a single run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UsageSourceResolution {
-    /// A readable Codex Sessions Directory or custom path exists.
+    /// A readable AI Coding Agent sessions directory or custom path exists.
     Readable {
         /// Path used as the authoritative Usage Source for this run.
         path: PathBuf,
@@ -32,7 +32,7 @@ impl UsageSourceResolution {
         }
     }
 
-    /// Returns true when a readable source exists but contains no Codex usage.
+    /// Returns true when a readable source exists but contains no usage.
     pub fn is_readable(&self) -> bool {
         matches!(self, Self::Readable { .. })
     }
@@ -46,7 +46,19 @@ pub fn resolve_usage_source(
         return Ok(resolve_path(path, true));
     }
 
-    Ok(resolve_path(default_codex_sessions_directory(), false))
+    let codex_sessions_directory = default_codex_sessions_directory();
+    let codex_resolution = resolve_path(codex_sessions_directory, false);
+    if codex_resolution.is_readable() {
+        return Ok(codex_resolution);
+    }
+
+    let pi_sessions_directory = default_pi_sessions_directory();
+    let pi_resolution = resolve_path(pi_sessions_directory, false);
+    if pi_resolution.is_readable() {
+        return Ok(pi_resolution);
+    }
+
+    Ok(codex_resolution)
 }
 
 /// Returns the default local Codex Sessions Directory.
@@ -57,6 +69,18 @@ pub fn default_codex_sessions_directory() -> PathBuf {
             env::var_os("HOME").map(|home_directory| PathBuf::from(home_directory).join(".codex"))
         })
         .unwrap_or_else(|| PathBuf::from(".codex"))
+        .join("sessions")
+}
+
+/// Returns the default local Pi Sessions Directory.
+pub fn default_pi_sessions_directory() -> PathBuf {
+    env::var_os("PI_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            env::var_os("HOME").map(|home_directory| PathBuf::from(home_directory).join(".pi"))
+        })
+        .unwrap_or_else(|| PathBuf::from(".pi"))
+        .join("agent")
         .join("sessions")
 }
 
