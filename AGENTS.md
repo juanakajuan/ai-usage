@@ -31,7 +31,7 @@ Weakening type safety is considered a defect.
 
 ### Issue tracker
 
-Issues are tracked in Codeberg Issues for `juanakajuan/ai-usage` using the `tea` CLI. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues for `juanakajuan/ai-usage` using the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

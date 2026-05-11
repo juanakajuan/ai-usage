@@ -1,72 +1,72 @@
-# Issue Tracker: Codeberg
+# Issue Tracker: GitHub
 
-Issues and PRDs for this repo live in Codeberg Issues for `juanakajuan/ai-usage`.
+Issues and PRDs for this repo live in GitHub Issues for `juanakajuan/ai-usage`.
 
-Use the `tea` CLI to read and update issues. The repo has `origin` configured as:
+Use the `gh` CLI to read and update issues. The repo has `origin` configured as:
 
 ```text
-ssh://git@codeberg.org/juanakajuan/ai-usage.git
+git@github.com:juanakajuan/ai-usage.git
 ```
 
 Prefer discovering the repository from the local remote:
 
 ```bash
-tea issues --remote origin
+gh issue list --repo juanakajuan/ai-usage
 ```
 
 If remote discovery is unavailable, pass the repository explicitly:
 
 ```bash
-tea issues --repo juanakajuan/ai-usage
+gh issue list --repo juanakajuan/ai-usage
 ```
 
 ## Conventions
 
-- Use Codeberg issue titles for issue summaries.
-- Use Codeberg issue bodies for PRDs, acceptance criteria, implementation notes, and reproduction details.
-- Use Codeberg labels for triage state. See `triage-labels.md` for the role strings.
-- Add comments in Codeberg for follow-up discussion instead of creating local tracker files.
+- Use GitHub issue titles for issue summaries.
+- Use GitHub issue bodies for PRDs, acceptance criteria, implementation notes, and reproduction details.
+- Use GitHub labels for triage state. See `triage-labels.md` for the role strings.
+- Add comments in GitHub for follow-up discussion instead of creating local tracker files.
 
 ## When a skill says "publish to the issue tracker"
 
-Create or update a Codeberg issue with `tea`.
+Create or update a GitHub issue with `gh`.
 
 For a new issue:
 
 ```bash
-tea issues create --remote origin --title "<title>" --description "<body>"
+gh issue create --repo juanakajuan/ai-usage --title "<title>" --body "<body>"
 ```
 
 Apply labels at creation time when the triage state is known:
 
 ```bash
-tea issues create --remote origin --title "<title>" --description "<body>" --labels "<label>"
+gh issue create --repo juanakajuan/ai-usage --title "<title>" --body "<body>" --label "<label>"
 ```
 
 ## When a skill says "fetch the relevant ticket"
 
-Read the Codeberg issue with `tea`:
+Read the GitHub issue with `gh`:
 
 ```bash
-tea issues --remote origin <issue-number> --comments
+gh issue view <issue-number> --repo juanakajuan/ai-usage --comments
 ```
 
 Use JSON output when a skill needs structured issue data:
 
 ```bash
-tea issues --remote origin <issue-number> --comments --output json
+gh issue view <issue-number> --repo juanakajuan/ai-usage --comments --json number,title,body,labels,state,comments
 ```
 
 ## When a skill says "apply a triage label"
 
-Use `tea issues edit` with the mapped label from `triage-labels.md`:
+Use `gh issue edit` with the mapped label from `triage-labels.md`:
 
 ```bash
-tea issues edit --remote origin <issue-number> --add-labels "<label>"
+gh issue edit <issue-number> --repo juanakajuan/ai-usage --add-label "<label>"
 ```
 
 Remove obsolete triage labels when moving an issue to a different triage state:
 
 ```bash
-tea issues edit --remote origin <issue-number> --remove-labels "<old-label>" --add-labels "<new-label>"
+gh issue edit <issue-number> --repo juanakajuan/ai-usage --remove-label "<old-label>" --add-label "<new-label>"
 ```
