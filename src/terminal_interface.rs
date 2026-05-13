@@ -32,8 +32,8 @@ const MATTE_BOX_SUCCESS: Color = Color::Rgb(134, 174, 124);
 const MATTE_BOX_WARNING: Color = Color::Rgb(211, 151, 98);
 const MATTE_BOX_SELECTED_BACKGROUND: Color = Color::Rgb(37, 37, 34);
 const SESSION_TABLE_COLUMN_SPACING: u16 = 1;
-const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 10] = [6, 6, 7, 14, 14, 25, 7, 10, 12, 8];
-const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 10] = [1, 1, 1, 5, 2, 1, 1, 2, 1, 1];
+const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 9] = [6, 6, 7, 14, 14, 25, 7, 10, 12];
+const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 9] = [1, 1, 1, 5, 2, 1, 1, 2, 1];
 
 /// Terminal actions requested by keyboard input.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -438,7 +438,6 @@ fn session_panel(
             Cell::from("Cost"),
             Cell::from("Project"),
             Cell::from("Tokens"),
-            Cell::from("Quality"),
         ])
         .style(header_style())
         .bottom_margin(1),
@@ -453,7 +452,7 @@ fn session_panel(
 }
 
 /// Builds Session Detail table column widths that consume the full available panel width.
-fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 10] {
+fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 9] {
     let session_table_column_gap_count =
         SESSION_TABLE_MINIMUM_COLUMN_WIDTHS.len().saturating_sub(1) as u16;
     let spacing_width = SESSION_TABLE_COLUMN_SPACING * session_table_column_gap_count;
@@ -567,7 +566,6 @@ fn session_table_rows(
                     "{} tokens",
                     compact_token_count(priced_session.codex_session.token_totals.total_tokens)
                 )),
-                Cell::from(session_quality_label(priced_session)).style(muted_style()),
             ])
             .style(row_style)
         })
@@ -755,7 +753,7 @@ fn render_headline_period_row(headline_period: &HeadlinePeriod) -> String {
 
 fn compact_session_row(priced_session: &PricedCodexSession, project_name: &str) -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}  {}",
+        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
         session_status_label(priced_session),
         priced_session.codex_session.ai_coding_agent.label(),
         session_time_label(priced_session),
@@ -767,8 +765,7 @@ fn compact_session_row(priced_session: &PricedCodexSession, project_name: &str) 
         format!(
             "{} tokens",
             compact_token_count(priced_session.codex_session.token_totals.total_tokens)
-        ),
-        session_quality_label(priced_session)
+        )
     )
 }
 
@@ -1000,20 +997,6 @@ fn session_cost_label(cost_state: &CostState) -> String {
     }
 }
 
-fn session_quality_label(priced_session: &PricedCodexSession) -> &'static str {
-    if priced_session.codex_session.is_active {
-        return match priced_session.cost_state {
-            CostState::Complete { .. } => "active",
-            CostState::Partial { .. } | CostState::Incomplete { .. } => "active incomplete",
-        };
-    }
-
-    match priced_session.cost_state {
-        CostState::Complete { .. } => "—",
-        CostState::Partial { .. } | CostState::Incomplete { .. } => "incomplete",
-    }
-}
-
 fn reporting_period_label(kind: &ReportingPeriodKind) -> &'static str {
     match kind {
         ReportingPeriodKind::Daily => "Today",
@@ -1038,7 +1021,7 @@ fn data_quality_summary_label(data_quality_notice_count: usize) -> String {
 
 fn session_table_header() -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}  {}",
+        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
         "Status",
         "Agent",
         "Time",
@@ -1047,14 +1030,13 @@ fn session_table_header() -> String {
         "Price / Million",
         "Cost",
         "Project",
-        "Tokens",
-        "Quality"
+        "Tokens"
     )
 }
 
 fn session_table_separator() -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}  {}",
+        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
         "──────",
         "──────",
         "───────",
@@ -1063,7 +1045,6 @@ fn session_table_separator() -> String {
         "─────────────────────────",
         "───────",
         "──────────",
-        "──────────────",
         "──────────────"
     )
 }
