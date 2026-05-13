@@ -58,6 +58,12 @@ pub fn resolve_usage_source(
         return Ok(pi_resolution);
     }
 
+    let opencode_sessions_directory = default_opencode_sessions_directory();
+    let opencode_resolution = resolve_path(opencode_sessions_directory, false);
+    if opencode_resolution.is_readable() {
+        return Ok(opencode_resolution);
+    }
+
     Ok(codex_resolution)
 }
 
@@ -82,6 +88,25 @@ pub fn default_pi_sessions_directory() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".pi"))
         .join("agent")
         .join("sessions")
+}
+
+/// Returns the default local OpenCode Sessions Directory.
+pub fn default_opencode_sessions_directory() -> PathBuf {
+    env::var_os("OPENCODE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            env::var_os("XDG_DATA_HOME")
+                .map(|data_home_directory| PathBuf::from(data_home_directory).join("opencode"))
+        })
+        .or_else(|| {
+            env::var_os("HOME").map(|home_directory| {
+                PathBuf::from(home_directory)
+                    .join(".local")
+                    .join("share")
+                    .join("opencode")
+            })
+        })
+        .unwrap_or_else(|| PathBuf::from(".local").join("share").join("opencode"))
 }
 
 fn resolve_path(path: PathBuf, is_custom: bool) -> UsageSourceResolution {

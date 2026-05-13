@@ -44,6 +44,15 @@ impl PriceCatalog {
                     None,
                 ),
                 schedule(
+                    "gpt-5.5-fast",
+                    "2026-05-10",
+                    "12.500",
+                    "1.250",
+                    "12.500",
+                    "75.000",
+                    None,
+                ),
+                schedule(
                     "gpt-5.4",
                     "2026-05-10",
                     "2.500",
@@ -86,6 +95,15 @@ impl PriceCatalog {
                     "0.125",
                     "1.250",
                     "10.000",
+                    None,
+                ),
+                schedule(
+                    "gpt-5.5-fast",
+                    "2026-01-01",
+                    "3.125",
+                    "0.3125",
+                    "3.125",
+                    "25.000",
                     None,
                 ),
                 schedule(
@@ -236,6 +254,41 @@ mod tests {
         assert_eq!(
             mini_price_schedule.cache_read_tokens_per_million,
             Decimal::from_str_exact("0.075").unwrap()
+        );
+    }
+
+    #[test]
+    fn fast_mode_prices_are_two_and_a_half_times_standard_model_prices() {
+        let price_catalog = PriceCatalog::bundled();
+        let standard_price_schedule = price_catalog
+            .effective_price_schedule(
+                "gpt-5.5",
+                Utc.with_ymd_and_hms(2026, 5, 10, 0, 0, 0).unwrap(),
+            )
+            .expect("gpt-5.5 price schedule");
+        let fast_price_schedule = price_catalog
+            .effective_price_schedule(
+                "gpt-5.5-fast",
+                Utc.with_ymd_and_hms(2026, 5, 10, 0, 0, 0).unwrap(),
+            )
+            .expect("gpt-5.5-fast price schedule");
+        let fast_multiplier = Decimal::from_str_exact("2.5").unwrap();
+
+        assert_eq!(
+            fast_price_schedule.input_tokens_per_million,
+            standard_price_schedule.input_tokens_per_million * fast_multiplier
+        );
+        assert_eq!(
+            fast_price_schedule.cache_read_tokens_per_million,
+            standard_price_schedule.cache_read_tokens_per_million * fast_multiplier
+        );
+        assert_eq!(
+            fast_price_schedule.cache_write_tokens_per_million,
+            standard_price_schedule.cache_write_tokens_per_million * fast_multiplier
+        );
+        assert_eq!(
+            fast_price_schedule.output_tokens_per_million,
+            standard_price_schedule.output_tokens_per_million * fast_multiplier
         );
     }
 

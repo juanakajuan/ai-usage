@@ -355,7 +355,7 @@ fn all_time_detail(priced_sessions: &[PricedCodexSession]) -> Vec<MonthlySession
 
 fn sort_newest_first(session_detail: &mut [PricedCodexSession]) {
     session_detail.sort_by_key(|priced_session| {
-        std::cmp::Reverse(priced_session.codex_session.session_start_time)
+        std::cmp::Reverse(priced_session.codex_session.session_detail_time())
     });
 }
 
@@ -513,6 +513,64 @@ mod tests {
         );
     }
 
+    #[test]
+    fn session_detail_sorts_by_display_time() {
+        let current_local_time = Local.with_ymd_and_hms(2026, 5, 10, 12, 0, 0).unwrap();
+        let mut session_with_older_display_time = priced_session(
+            "older-display-time",
+            Local
+                .with_ymd_and_hms(2026, 5, 10, 10, 5, 0)
+                .unwrap()
+                .with_timezone(&Utc),
+            10,
+        );
+        session_with_older_display_time
+            .codex_session
+            .session_last_modified_time = Some(
+            Local
+                .with_ymd_and_hms(2026, 5, 10, 10, 20, 0)
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let mut session_with_newer_display_time = priced_session(
+            "newer-display-time",
+            Local
+                .with_ymd_and_hms(2026, 5, 10, 10, 0, 0)
+                .unwrap()
+                .with_timezone(&Utc),
+            20,
+        );
+        session_with_newer_display_time
+            .codex_session
+            .session_last_modified_time = Some(
+            Local
+                .with_ymd_and_hms(2026, 5, 10, 10, 22, 0)
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+
+        let derived_summary = build_derived_summary_at(
+            UsageSourceResolution::Readable {
+                path: "source".into(),
+                is_custom: false,
+            },
+            vec![
+                session_with_older_display_time,
+                session_with_newer_display_time,
+            ],
+            Vec::new(),
+            current_local_time,
+        );
+
+        assert_eq!(
+            derived_summary.headline_periods[3].session_detail[0]
+                .codex_session
+                .project_name
+                .as_deref(),
+            Some("newer-display-time")
+        );
+    }
+
     fn priced_session(
         project_name: &str,
         session_start_time: DateTime<Utc>,
@@ -522,7 +580,9 @@ mod tests {
             codex_session: CodexSession {
                 ai_coding_agent: AiCodingAgent::Codex,
                 source_path: format!("{project_name}.jsonl").into(),
+                session_name: Some(format!("{project_name} session")),
                 session_start_time,
+                session_last_modified_time: None,
                 model: "gpt-5.5".to_owned(),
                 reasoning_effort: None,
                 project_path: Some(format!("/tmp/{project_name}").into()),

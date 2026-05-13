@@ -4,8 +4,8 @@ AI Usage is a Rust terminal application for understanding the United States doll
 
 ## First Version Scope
 
-- Track Codex CLI and Pi Coding Agent usage.
-- Read local Codex session JSONL files from the Codex sessions directory and Pi session JSONL files from the Pi sessions directory.
+- Track Codex CLI, Pi Coding Agent, and OpenCode usage.
+- Read local Codex session JSONL files from the Codex sessions directory, Pi session JSONL files from the Pi sessions directory, and OpenCode session files from the OpenCode data directory.
 - Support a custom source path with `--usage-source`.
 - Avoid persistent app configuration and avoid an app-owned usage database.
 - Work fully offline with a bundled local price catalog.
@@ -15,8 +15,9 @@ AI Usage is a Rust terminal application for understanding the United States doll
 
 - Treat local AI coding agent session files as the authoritative usage source.
 - Treat each session file as one session and preserve which AI coding agent produced it.
+- Preserve source-recorded session names when available, without inferring names from prompt content.
 - Use the session start time for daily, weekly, monthly, and all-time grouping.
-- Use the final usable Codex token snapshot for Codex session totals; sum Pi assistant-message usage entries for Pi session totals.
+- Use the final usable Codex token snapshot for Codex session totals; sum Pi and OpenCode assistant-message usage entries for their session totals.
 - Include active sessions with the latest available token snapshot and a visible active marker.
 - Skip unknown or malformed records, preserve partial results, and show data quality notices.
 - Never infer prompt content or estimate missing token counts from message text.
@@ -44,6 +45,7 @@ AI Usage is a Rust terminal application for understanding the United States doll
 - Keep the visual style restrained: compact spacing, minimal borders, and markers that work without color.
 - Show each finite headline period's cost change from the previous matching period as compact supporting context.
 - Show selected-period session detail sorted newest first.
+- Show source-recorded session names in compact session lists and expanded session detail when available.
 - Show the price-per-million-token schedule summary used for each session.
 - Show all-time detail grouped by month first.
 - Show the AI coding agent label and project names in compact session lists, with full paths only in expanded detail.
@@ -61,6 +63,7 @@ AI Usage is a Rust terminal application for understanding the United States doll
 - Enable non-interactive JSON with `--json`.
 - Include an output schema version.
 - Include source paths by default for audit and testing.
+- Include source-recorded session names in session detail when available.
 - Support `--redact-paths` to replace home-directory-sensitive path prefixes.
 - Represent the same derived usage information as the terminal summary.
 

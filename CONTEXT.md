@@ -16,6 +16,10 @@ _Avoid_: generic usage, session data, logs
 Token usage attributed to local Pi Coding Agent activity on this machine.
 _Avoid_: generic usage, session data, logs
 
+**OpenCode Usage**:
+Token usage attributed to local OpenCode activity on this machine.
+_Avoid_: generic usage, session data, logs
+
 **Usage Source**:
 The authoritative location from which usage data is read.
 _Avoid_: import, export, provider
@@ -79,6 +83,10 @@ _Avoid_: history, log directory, cache directory
 **Session Start Time**:
 The local time when a Codex session began.
 _Avoid_: file time, last token time
+
+**Session Name**:
+A source-recorded short label for an AI coding agent session when the tool stores one.
+_Avoid_: prompt summary, inferred title
 
 **Active Session**:
 A Codex session that has token data but no observed completion record yet.
@@ -242,14 +250,14 @@ _Avoid_: app version, price catalog version
 - **Input Tokens** includes **Cache Read Tokens** and **Non-Cached Input Tokens** when those subsets are known.
 - **Total Tokens** must not double count **Cache Read Tokens** as separate from **Input Tokens**.
 - Missing token categories must preserve available token data and can make **Historical Cost** incomplete.
-- **AI Coding Agent Usage** includes **Codex Usage** and **Pi Usage** when their local session files are readable.
+- **AI Coding Agent Usage** includes **Codex Usage**, **Pi Usage**, and **OpenCode Usage** when their local session files are readable.
 - **Codex Usage** is aggregated primarily by **Codex Session**.
 - A **Codex Session** may contain lower-level usage records, but those are supporting detail rather than the primary reporting unit.
 - A **Codex Session File** is the default local representation of a **Codex Session**.
 - The default **Codex Sessions Directory** is the local Codex sessions tree under the user's Codex home directory.
 - A **Codex Session** belongs to reporting periods by **Session Start Time**.
 - A **Codex Session** uses the **Final Token Snapshot** for its token totals rather than summing token snapshots.
-- **Pi Usage** totals are summed from Pi assistant-message usage entries because Pi records per-response usage rather than Codex-style cumulative token snapshots.
+- **Pi Usage** and **OpenCode Usage** totals are summed from assistant-message usage entries because they record per-response usage rather than Codex-style cumulative token snapshots.
 - **Non-Cached Input Tokens** can be derived from **Input Tokens** minus **Cache Read Tokens** when both are known.
 - **Historical Cost** requires a **Model** that maps unambiguously to a **Price Schedule**.
 - **Historical Cost** uses the **Effective Price Schedule** for the session start time.
@@ -281,7 +289,9 @@ _Avoid_: app version, price catalog version
 - **Data Quality Notices** summarize problems on the main screen, while **Data Quality Detail** shows paths and reasons.
 - **JSON Output** includes source paths by default and can use **Redacted Paths** when requested.
 - **Session Detail** includes the AI coding agent label for each session.
+- **Session Detail** may include **Session Name** when the source records one.
 - **Session Detail** may include **Project Context** but excludes **Prompt Content** in the first version.
+- AI Usage must not infer **Session Name** from **Prompt Content**.
 - **Session Detail** shows **Project Name** in compact lists and full project paths only in expanded detail or JSON output.
 - Pressing Enter on a selected session opens **Expanded Session Detail**.
 - **Cost Display** rounds only the displayed value; calculations keep higher precision until aggregation is complete.

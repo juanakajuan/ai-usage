@@ -324,7 +324,9 @@ mod tests {
         CodexSession {
             ai_coding_agent: AiCodingAgent::Codex,
             source_path: "session.jsonl".into(),
+            session_name: None,
             session_start_time: chrono::Utc.with_ymd_and_hms(2026, 5, 10, 10, 0, 0).unwrap(),
+            session_last_modified_time: None,
             model: "gpt-5.5".to_owned(),
             reasoning_effort: None,
             project_path: None,

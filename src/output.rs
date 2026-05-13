@@ -13,7 +13,7 @@ use crate::session::{DataQualityNoticeKind, TokenTotals};
 use crate::usage_source::UsageSourceResolution;
 
 /// Current JSON Output schema version.
-pub const OUTPUT_SCHEMA_VERSION: u32 = 2;
+pub const OUTPUT_SCHEMA_VERSION: u32 = 3;
 
 /// JSON Output rendering options.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -101,6 +101,8 @@ pub struct JsonSessionDetail {
     pub ai_coding_agent: String,
     /// Source session file path.
     pub source_path: String,
+    /// Source-recorded Session Name when available.
+    pub session_name: Option<String>,
     /// Session Start Time.
     pub session_start_time: String,
     /// Exact recorded Model name.
@@ -310,6 +312,7 @@ fn session_detail_json(
             redact_paths,
             home_directory,
         ),
+        session_name: priced_session.codex_session.session_name.clone(),
         session_start_time: priced_session.codex_session.session_start_time.to_rfc3339(),
         model: priced_session.codex_session.model.clone(),
         reasoning_effort: priced_session.codex_session.reasoning_effort.clone(),
@@ -426,7 +429,9 @@ mod tests {
             codex_session: CodexSession {
                 ai_coding_agent: AiCodingAgent::Codex,
                 source_path: source_path.clone(),
+                session_name: Some("JSON Session Name".to_owned()),
                 session_start_time: Utc.with_ymd_and_hms(2026, 5, 10, 10, 0, 0).unwrap(),
+                session_last_modified_time: None,
                 model: "gpt-5.5".to_owned(),
                 reasoning_effort: None,
                 project_path: Some(source_path.parent().unwrap().to_path_buf()),
@@ -490,6 +495,7 @@ mod tests {
             build_json_output(&derived_summary, JsonOutputOptions { redact_paths: true }).unwrap();
 
         assert_eq!(normal_output.output_schema_version, OUTPUT_SCHEMA_VERSION);
+        assert_eq!(normal_output.output_schema_version, 3);
         assert_eq!(
             normal_output.usage_source.path,
             source_path.parent().unwrap().display().to_string()
@@ -498,6 +504,12 @@ mod tests {
         assert_eq!(
             normal_output.headline_periods[0].session_detail[0].ai_coding_agent,
             "Codex"
+        );
+        assert_eq!(
+            normal_output.headline_periods[0].session_detail[0]
+                .session_name
+                .as_deref(),
+            Some("JSON Session Name")
         );
         assert_eq!(
             normal_output.headline_periods[0].known_united_states_dollar_cost,

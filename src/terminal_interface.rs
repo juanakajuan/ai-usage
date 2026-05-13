@@ -32,8 +32,8 @@ const MATTE_BOX_SUCCESS: Color = Color::Rgb(134, 174, 124);
 const MATTE_BOX_WARNING: Color = Color::Rgb(211, 151, 98);
 const MATTE_BOX_SELECTED_BACKGROUND: Color = Color::Rgb(37, 37, 34);
 const SESSION_TABLE_COLUMN_SPACING: u16 = 1;
-const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 9] = [8, 6, 7, 17, 28, 8, 11, 12, 10];
-const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 9] = [1, 1, 1, 2, 4, 1, 2, 1, 1];
+const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 10] = [6, 6, 7, 14, 14, 25, 7, 10, 12, 8];
+const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 10] = [1, 1, 1, 5, 2, 1, 1, 2, 1, 1];
 
 /// Terminal actions requested by keyboard input.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -432,6 +432,7 @@ fn session_panel(
             Cell::from("Status"),
             Cell::from("Agent"),
             Cell::from("Time"),
+            Cell::from("Session"),
             Cell::from("Model"),
             Cell::from("Price / Million"),
             Cell::from("Cost"),
@@ -452,7 +453,7 @@ fn session_panel(
 }
 
 /// Builds Session Detail table column widths that consume the full available panel width.
-fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 9] {
+fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 10] {
     let session_table_column_gap_count =
         SESSION_TABLE_MINIMUM_COLUMN_WIDTHS.len().saturating_sub(1) as u16;
     let spacing_width = SESSION_TABLE_COLUMN_SPACING * session_table_column_gap_count;
@@ -518,8 +519,8 @@ fn session_table_rows(
             Cell::from(""),
             Cell::from(""),
             Cell::from(""),
-            Cell::from("No sessions for selected period").style(muted_style()),
             Cell::from(""),
+            Cell::from("No sessions for selected period").style(muted_style()),
             Cell::from(""),
             Cell::from(""),
             Cell::from(""),
@@ -555,6 +556,7 @@ fn session_table_rows(
                     .style(session_status_style(priced_session)),
                 Cell::from(priced_session.codex_session.ai_coding_agent.label()),
                 Cell::from(session_time_label(priced_session)),
+                Cell::from(session_name_label(priced_session)),
                 Cell::from(priced_session.codex_session.compact_model_label()),
                 Cell::from(session_pricing_label(
                     priced_session.price_schedule_match.as_ref(),
@@ -662,6 +664,11 @@ pub fn render_expanded_session_detail_lines(priced_session: &PricedCodexSession)
         .as_ref()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "(no project path)".to_owned());
+    let session_name = priced_session
+        .codex_session
+        .session_name
+        .as_deref()
+        .unwrap_or("(no session name)");
     let price_schedule = priced_session
         .price_schedule_match
         .as_ref()
@@ -674,6 +681,7 @@ pub fn render_expanded_session_detail_lines(priced_session: &PricedCodexSession)
         .unwrap_or_else(|| "no price schedule match".to_owned());
 
     let mut lines = vec![
+        format!("Session Name: {session_name}"),
         format!("Project Path: {project_path}"),
         format!(
             "AI Coding Agent: {}",
@@ -747,10 +755,11 @@ fn render_headline_period_row(headline_period: &HeadlinePeriod) -> String {
 
 fn compact_session_row(priced_session: &PricedCodexSession, project_name: &str) -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}  {}",
         session_status_label(priced_session),
         priced_session.codex_session.ai_coding_agent.label(),
         session_time_label(priced_session),
+        session_name_label(priced_session),
         priced_session.codex_session.compact_model_label(),
         session_pricing_label(priced_session.price_schedule_match.as_ref()),
         session_cost_label(&priced_session.cost_state),
@@ -895,10 +904,18 @@ fn session_status_style(priced_session: &PricedCodexSession) -> Style {
 fn session_time_label(priced_session: &PricedCodexSession) -> String {
     priced_session
         .codex_session
-        .session_start_time
+        .session_detail_time()
         .with_timezone(&Local)
         .format("%-I:%M%P")
         .to_string()
+}
+
+fn session_name_label(priced_session: &PricedCodexSession) -> String {
+    priced_session
+        .codex_session
+        .session_name
+        .clone()
+        .unwrap_or_else(|| "(no name)".to_owned())
 }
 
 fn session_pricing_label(price_schedule_match: Option<&PriceScheduleMatch>) -> String {
@@ -1021,10 +1038,11 @@ fn data_quality_summary_label(data_quality_notice_count: usize) -> String {
 
 fn session_table_header() -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}  {}",
         "Status",
         "Agent",
         "Time",
+        "Session",
         "Model",
         "Price / Million",
         "Cost",
@@ -1036,14 +1054,15 @@ fn session_table_header() -> String {
 
 fn session_table_separator() -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<17}  {:<22}  {:>7}  {:<12}  {:>14}  {}",
+        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}  {}",
         "──────",
         "──────",
         "───────",
-        "─────────────────",
-        "──────────────────────",
+        "──────────────",
+        "──────────────",
+        "─────────────────────────",
         "───────",
-        "────────────",
+        "──────────",
         "──────────────",
         "──────────────"
     )
@@ -1139,6 +1158,8 @@ mod tests {
         assert!(!rendered_summary.contains("▇"));
         assert!(rendered_summary.contains("Data Quality: 1 notice"));
         assert!(rendered_summary.contains("● Act"));
+        assert!(rendered_summary.contains("Session"));
+        assert!(rendered_summary.contains("active session"));
         assert!(rendered_summary.contains("Price / Million"));
         assert!(rendered_summary.contains("Input $5.00 Output $30.00"));
     }
@@ -1184,12 +1205,18 @@ mod tests {
         let expanded_detail = render_expanded_session_detail_lines(&newer_session);
 
         assert!(session_detail[0].contains("newer"));
+        assert!(session_detail[0].contains("newer session"));
         assert!(session_detail[0].contains("gpt-5.5"));
         assert!(session_detail[0].contains("Input $5.00 Output $30.00"));
         assert!(session_detail[0].contains("15 tokens"));
         assert_eq!(
             derived_summary.all_time_detail[0].session_detail[0],
             newer_session
+        );
+        assert!(
+            expanded_detail
+                .iter()
+                .any(|line| line.contains("Session Name: newer session"))
         );
         assert!(
             expanded_detail
@@ -1294,9 +1321,13 @@ mod tests {
         let status_header_index = terminal_output.find("Status").expect("status header");
         let agent_header_index = terminal_output.find("Agent").expect("agent header");
         let time_header_index = terminal_output.find("Time").expect("time header");
+        let session_header_index = terminal_output.rfind("Session").expect("session header");
+        let model_header_index = terminal_output.find("Model").expect("model header");
 
         assert!(status_header_index < agent_header_index);
         assert!(agent_header_index < time_header_index);
+        assert!(time_header_index < session_header_index);
+        assert!(session_header_index < model_header_index);
     }
 
     #[test]
@@ -1341,6 +1372,36 @@ mod tests {
             .collect::<String>();
 
         assert!(terminal_output.contains("Input $5.00 Output $30.00"));
+    }
+
+    #[test]
+    fn session_time_label_prefers_last_modified_time() {
+        let mut priced_session = priced_session(
+            "modified-time",
+            false,
+            CostState::Complete {
+                united_states_dollar_cost: Decimal::from(1),
+            },
+        );
+        let session_start_time = Utc.with_ymd_and_hms(2026, 5, 10, 10, 0, 0).unwrap();
+        let session_last_modified_time = Utc.with_ymd_and_hms(2026, 5, 10, 11, 30, 0).unwrap();
+        priced_session.codex_session.session_start_time = session_start_time;
+        priced_session.codex_session.session_last_modified_time = Some(session_last_modified_time);
+
+        let start_time_label = session_start_time
+            .with_timezone(&Local)
+            .format("%-I:%M%P")
+            .to_string();
+        let last_modified_time_label = session_last_modified_time
+            .with_timezone(&Local)
+            .format("%-I:%M%P")
+            .to_string();
+
+        assert_eq!(
+            session_time_label(&priced_session),
+            last_modified_time_label
+        );
+        assert_ne!(session_time_label(&priced_session), start_time_label);
     }
 
     #[test]
@@ -1505,7 +1566,9 @@ mod tests {
             codex_session: CodexSession {
                 ai_coding_agent: AiCodingAgent::Codex,
                 source_path: format!("{project_name}.jsonl").into(),
+                session_name: Some(format!("{project_name} session")),
                 session_start_time: Utc.with_ymd_and_hms(2026, 5, 10, 10, minute, 0).unwrap(),
+                session_last_modified_time: None,
                 model: "gpt-5.5".to_owned(),
                 reasoning_effort: None,
                 project_path: Some(format!("/tmp/{project_name}").into()),

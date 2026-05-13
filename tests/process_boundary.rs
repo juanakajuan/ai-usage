@@ -14,7 +14,7 @@ fn json_output_redacts_paths_and_uses_custom_usage_source() {
     write_session_file(
         &usage_source.join("session.jsonl"),
         &[
-            r#"{"timestamp":"2026-05-10T10:00:00Z","type":"session_meta","payload":{"timestamp":"2026-05-10T10:00:00Z","cwd":"/home/person/project"}}"#,
+            r#"{"timestamp":"2026-05-10T10:00:00Z","type":"session_meta","payload":{"timestamp":"2026-05-10T10:00:00Z","cwd":"/home/person/project","name":"Boundary Session Name"}}"#,
             r#"{"timestamp":"2026-05-10T10:00:01Z","type":"turn_context","payload":{"model":"gpt-5.5"}}"#,
             r#"{"timestamp":"2026-05-10T10:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000000,"cached_input_tokens":250000,"output_tokens":500000,"total_tokens":1500000}}}}"#,
             r#"{"timestamp":"2026-05-10T10:00:03Z","type":"event_msg","payload":{"type":"task_complete"}}"#,
@@ -32,12 +32,16 @@ fn json_output_redacts_paths_and_uses_custom_usage_source() {
 
     assert!(output.status.success());
     let json_output: Value = serde_json::from_slice(&output.stdout).expect("json output");
-    assert_eq!(json_output["output_schema_version"], 2);
+    assert_eq!(json_output["output_schema_version"], 3);
     assert_eq!(json_output["usage_source"]["is_custom"], true);
     assert_eq!(json_output["usage_source"]["path"], "~/codex-home/sessions");
     assert_eq!(
         json_output["headline_periods"][3]["session_detail"][0]["source_path"],
         "~/codex-home/sessions/session.jsonl"
+    );
+    assert_eq!(
+        json_output["headline_periods"][3]["session_detail"][0]["session_name"],
+        "Boundary Session Name"
     );
 }
 
