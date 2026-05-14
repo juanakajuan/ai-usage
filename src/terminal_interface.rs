@@ -5,7 +5,7 @@ use std::io::{self, Stdout};
 use std::time::Duration;
 
 use chrono::Local;
-use crossterm::event::{self, Event, KeyCode};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -33,6 +33,7 @@ const MATTE_BOX_WARNING: Color = Color::Rgb(211, 151, 98);
 const MATTE_BOX_SELECTED_BACKGROUND: Color = Color::Rgb(37, 37, 34);
 const SESSION_TABLE_COLUMN_SPACING: u16 = 1;
 const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 8] = [6, 7, 10, 6, 14, 7, 25, 12];
+const SESSION_SELECTION_PAGE_OFFSET: isize = 10;
 
 /// Terminal actions requested by keyboard input.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,6 +71,29 @@ impl TerminalInterfaceState {
     }
 
     /// Applies one key press and returns the requested terminal action.
+    pub fn handle_key_event(
+        &mut self,
+        key_event: KeyEvent,
+        derived_summary: &DerivedSummary,
+    ) -> TerminalAction {
+        if key_event.modifiers == KeyModifiers::CONTROL {
+            match key_event.code {
+                KeyCode::Char('d') => {
+                    self.move_session_selection(SESSION_SELECTION_PAGE_OFFSET, derived_summary);
+                    TerminalAction::Continue
+                }
+                KeyCode::Char('u') => {
+                    self.move_session_selection(-SESSION_SELECTION_PAGE_OFFSET, derived_summary);
+                    TerminalAction::Continue
+                }
+                _ => TerminalAction::Continue,
+            }
+        } else {
+            self.handle_key_code(key_event.code, derived_summary)
+        }
+    }
+
+    /// Applies one unmodified key press and returns the requested terminal action.
     pub fn handle_key_code(
         &mut self,
         key_code: KeyCode,
@@ -78,19 +102,19 @@ impl TerminalInterfaceState {
         match key_code {
             KeyCode::Char('q') | KeyCode::Esc => TerminalAction::Quit,
             KeyCode::Char('r') => TerminalAction::Reload,
-            KeyCode::Down | KeyCode::Char('j') => {
+            KeyCode::Char('j') => {
                 self.move_session_selection(1, derived_summary);
                 TerminalAction::Continue
             }
-            KeyCode::Up | KeyCode::Char('k') => {
+            KeyCode::Char('k') => {
                 self.move_session_selection(-1, derived_summary);
                 TerminalAction::Continue
             }
-            KeyCode::Right | KeyCode::Char('l') => {
+            KeyCode::Char('l') => {
                 self.move_period_selection(1, derived_summary);
                 TerminalAction::Continue
             }
-            KeyCode::Left | KeyCode::Char('h') => {
+            KeyCode::Char('h') => {
                 self.move_period_selection(-1, derived_summary);
                 TerminalAction::Continue
             }
@@ -191,7 +215,7 @@ fn run_event_loop(
         if event::poll(Duration::from_millis(250))?
             && let Event::Key(key_event) = event::read()?
         {
-            match terminal_interface_state.handle_key_code(key_event.code, &derived_summary) {
+            match terminal_interface_state.handle_key_event(key_event, &derived_summary) {
                 TerminalAction::Continue => {}
                 TerminalAction::Reload => {
                     derived_summary = reload_derived_summary()?;
@@ -556,8 +580,9 @@ fn selected_row_style() -> Style {
 
 fn footer_paragraph() -> Paragraph<'static> {
     Paragraph::new(Line::from(vec![
-        Span::raw(" ↑/↓ move   "),
-        Span::raw("←/→ period   "),
+        Span::raw(" j/k move   "),
+        Span::raw("Ctrl+d/u page   "),
+        Span::raw("h/l period   "),
         Span::raw("r reload   "),
         Span::raw("q quit"),
     ]))
@@ -1131,7 +1156,7 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_navigation_supports_arrows_and_terminal_native_keys() {
+    fn keyboard_navigation_supports_only_vim_keys() {
         let derived_summary = build_derived_summary_at(
             CurrentSourceState::Readable {
                 path: "source".into(),
@@ -1164,7 +1189,7 @@ mod tests {
             terminal_interface_state.handle_key_code(KeyCode::Left, &derived_summary),
             TerminalAction::Continue
         );
-        assert_eq!(terminal_interface_state.selected_headline_period_index, 2);
+        assert_eq!(terminal_interface_state.selected_headline_period_index, 3);
         assert_eq!(
             terminal_interface_state.handle_key_code(KeyCode::Char('l'), &derived_summary),
             TerminalAction::Continue
@@ -1174,11 +1199,6 @@ mod tests {
             terminal_interface_state.handle_key_code(KeyCode::Down, &derived_summary),
             TerminalAction::Continue
         );
-        assert_eq!(terminal_interface_state.selected_session_index, 1);
-        assert_eq!(
-            terminal_interface_state.handle_key_code(KeyCode::Char('k'), &derived_summary),
-            TerminalAction::Continue
-        );
         assert_eq!(terminal_interface_state.selected_session_index, 0);
         assert_eq!(
             terminal_interface_state.handle_key_code(KeyCode::Char('j'), &derived_summary),
@@ -1186,10 +1206,88 @@ mod tests {
         );
         assert_eq!(terminal_interface_state.selected_session_index, 1);
         assert_eq!(
+            terminal_interface_state.handle_key_code(KeyCode::Up, &derived_summary),
+            TerminalAction::Continue
+        );
+        assert_eq!(terminal_interface_state.selected_session_index, 1);
+        assert_eq!(
+            terminal_interface_state.handle_key_code(KeyCode::Char('k'), &derived_summary),
+            TerminalAction::Continue
+        );
+        assert_eq!(terminal_interface_state.selected_session_index, 0);
+        assert_eq!(
+            terminal_interface_state.handle_key_code(KeyCode::Right, &derived_summary),
+            TerminalAction::Continue
+        );
+        assert_eq!(terminal_interface_state.selected_headline_period_index, 3);
+        assert_eq!(
             terminal_interface_state.handle_key_code(KeyCode::Char('h'), &derived_summary),
             TerminalAction::Continue
         );
         assert_eq!(terminal_interface_state.selected_headline_period_index, 2);
+    }
+
+    #[test]
+    fn keyboard_navigation_pages_sessions_with_control_vim_keys() {
+        let sessions = (0..12)
+            .map(|session_number| {
+                priced_session(
+                    &format!("project-{session_number}"),
+                    false,
+                    CostState::Complete {
+                        united_states_dollar_cost: Decimal::from(1),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let derived_summary = build_derived_summary_at(
+            CurrentSourceState::Readable {
+                path: "source".into(),
+                is_custom: false,
+            },
+            sessions,
+            Vec::new(),
+            chrono::Local
+                .with_ymd_and_hms(2026, 5, 10, 12, 0, 0)
+                .unwrap(),
+        );
+        let mut terminal_interface_state = TerminalInterfaceState::new(&derived_summary);
+
+        assert_eq!(
+            terminal_interface_state.handle_key_event(
+                KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+                &derived_summary,
+            ),
+            TerminalAction::Continue
+        );
+        assert_eq!(
+            terminal_interface_state.selected_session_index,
+            SESSION_SELECTION_PAGE_OFFSET as usize
+        );
+        assert_eq!(
+            terminal_interface_state.handle_key_event(
+                KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+                &derived_summary,
+            ),
+            TerminalAction::Continue
+        );
+        assert_eq!(terminal_interface_state.selected_session_index, 11);
+        assert_eq!(
+            terminal_interface_state.handle_key_event(
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+                &derived_summary,
+            ),
+            TerminalAction::Continue
+        );
+        assert_eq!(terminal_interface_state.selected_session_index, 1);
+        assert_eq!(
+            terminal_interface_state.handle_key_event(
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+                &derived_summary,
+            ),
+            TerminalAction::Continue
+        );
+        assert_eq!(terminal_interface_state.selected_session_index, 0);
     }
 
     #[test]
