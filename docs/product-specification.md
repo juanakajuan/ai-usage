@@ -45,16 +45,14 @@ AI Usage is a Rust terminal application for understanding the United States doll
 - Keep the visual style restrained: compact spacing, minimal borders, and markers that work without color.
 - Show each finite headline period's cost change from the previous matching period as compact supporting context.
 - Show selected-period session detail sorted newest first.
-- Show source-recorded session names in compact session lists and expanded session detail when available.
 - Show the price-per-million-token schedule summary used for each session.
 - Show all-time detail grouped by month first.
-- Show the AI coding agent label and project names in compact session lists, with full paths only in expanded detail.
+- Show the AI coding agent label and project names in compact session lists, with full paths only in JSON output.
 - Exclude prompt and conversation content from every terminal view.
 
 ## Keyboard Model
 
 - Use arrow keys and `h`, `j`, `k`, `l` for navigation.
-- Use `Enter` to open expanded session detail.
 - Use `r` to reload the current source from disk.
 - Use `q` and `Esc` to quit.
 

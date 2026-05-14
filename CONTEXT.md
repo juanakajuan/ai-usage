@@ -232,10 +232,6 @@ _Avoid_: project context, session metadata
 The final directory name used as the compact display form of project context.
 _Avoid_: full path, repository slug
 
-**Expanded Session Detail**:
-A focused session view with full project path, token category breakdown, model, price schedule match, price schedule rates, and incomplete reasons.
-_Avoid_: raw transcript, prompt viewer
-
 **Cost Display**:
 The human-readable rendering of historical cost after precise calculation.
 _Avoid_: rounded source value, approximate spend
@@ -298,8 +294,7 @@ _Avoid_: app version, price catalog version
 - **Session Detail** may include **Session Name** when the source records one.
 - **Session Detail** may include **Project Context** but excludes **Prompt Content** in the first version.
 - AI Usage must not infer **Session Name** from **Prompt Content**.
-- **Session Detail** shows **Project Name** in compact lists and full project paths only in expanded detail or JSON output.
-- Pressing Enter on a selected session opens **Expanded Session Detail**.
+- **Session Detail** shows **Project Name** in terminal lists and full project paths only in **JSON Output**.
 - **Cost Display** rounds only the displayed value; calculations keep higher precision until aggregation is complete.
 - **JSON Output** includes an **Output Schema Version**.
 - **Active Sessions** are included using their latest available token snapshot and marked as active.
@@ -412,10 +407,7 @@ _Avoid_: app version, price catalog version
 > **Domain expert:** "No. Use **Project Context** for attribution when useful, but exclude **Prompt Content**."
 >
 > **Developer:** "Should the session list show full project paths?"
-> **Domain expert:** "No. Show **Project Name** in compact lists and reserve full paths for expanded detail or JSON."
->
-> **Developer:** "Should pressing Enter show the raw conversation?"
-> **Domain expert:** "No. Pressing Enter opens **Expanded Session Detail** without prompt content."
+> **Domain expert:** "No. Show **Project Name** in terminal lists and reserve full paths for **JSON Output**."
 >
 > **Developer:** "Should an unfinished local session be ignored?"
 > **Domain expert:** "No. Include **Active Sessions** with the latest available token snapshot and mark them active."
@@ -464,7 +456,6 @@ _Avoid_: app version, price catalog version
 - "redaction" can mean omitting paths or replacing sensitive prefixes; resolved: **Redacted Path** preserves audit usefulness while hiding home-directory-sensitive prefixes.
 - "session context" can mean project metadata or prompt contents; resolved: v1 may show **Project Context** but excludes **Prompt Content**.
 - "project" can mean a full local path or compact display name; resolved: **Project Name** is used in compact lists.
-- "expanded detail" can mean spend audit or transcript review; resolved: **Expanded Session Detail** excludes prompt content.
 - "rounded cost" can mean rounded calculation or rounded display; resolved: **Cost Display** rounds after precise aggregation.
 - "JSON version" can mean app release or output contract; resolved: **Output Schema Version** identifies the JSON structure.
 - "active session" can mean incomplete data or an ongoing session; resolved: **Active Session** is included with a visible active marker.

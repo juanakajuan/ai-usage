@@ -52,8 +52,6 @@ pub struct TerminalInterfaceState {
     pub selected_headline_period_index: usize,
     /// Selected Session Detail index within the selected period.
     pub selected_session_index: usize,
-    /// Whether Expanded Session Detail is open.
-    pub is_expanded_session_detail_open: bool,
 }
 
 impl TerminalInterfaceState {
@@ -68,7 +66,6 @@ impl TerminalInterfaceState {
         Self {
             selected_headline_period_index,
             selected_session_index: 0,
-            is_expanded_session_detail_open: false,
         }
     }
 
@@ -97,12 +94,6 @@ impl TerminalInterfaceState {
                 self.move_period_selection(-1, derived_summary);
                 TerminalAction::Continue
             }
-            KeyCode::Enter => {
-                if self.selected_session(derived_summary).is_some() {
-                    self.is_expanded_session_detail_open = true;
-                }
-                TerminalAction::Continue
-            }
             _ => TerminalAction::Continue,
         }
     }
@@ -112,7 +103,6 @@ impl TerminalInterfaceState {
         if derived_summary.headline_periods.is_empty() {
             self.selected_headline_period_index = 0;
             self.selected_session_index = 0;
-            self.is_expanded_session_detail_open = false;
             return;
         }
 
@@ -125,7 +115,6 @@ impl TerminalInterfaceState {
             .unwrap_or(0);
         if session_count == 0 {
             self.selected_session_index = 0;
-            self.is_expanded_session_detail_open = false;
         } else {
             self.selected_session_index = self.selected_session_index.min(session_count - 1);
         }
@@ -139,7 +128,6 @@ impl TerminalInterfaceState {
         self.selected_headline_period_index =
             offset_index(self.selected_headline_period_index, direction, last_index);
         self.selected_session_index = 0;
-        self.is_expanded_session_detail_open = false;
     }
 
     fn move_session_selection(&mut self, direction: isize, derived_summary: &DerivedSummary) {
@@ -148,13 +136,11 @@ impl TerminalInterfaceState {
         };
         if selected_period.session_detail.is_empty() {
             self.selected_session_index = 0;
-            self.is_expanded_session_detail_open = false;
             return;
         }
         let last_index = selected_period.session_detail.len() - 1;
         self.selected_session_index =
             offset_index(self.selected_session_index, direction, last_index);
-        self.is_expanded_session_detail_open = false;
     }
 
     fn selected_period<'a>(
@@ -164,15 +150,6 @@ impl TerminalInterfaceState {
         derived_summary
             .headline_periods
             .get(self.selected_headline_period_index)
-    }
-
-    fn selected_session<'a>(
-        &self,
-        derived_summary: &'a DerivedSummary,
-    ) -> Option<&'a PricedCodexSession> {
-        self.selected_period(derived_summary)?
-            .session_detail
-            .get(self.selected_session_index)
     }
 }
 
@@ -247,13 +224,6 @@ pub fn render_terminal_summary(derived_summary: &DerivedSummary) -> String {
         lines.push(session_table_header());
         lines.push(session_table_separator());
         lines.extend(render_session_detail_lines(all_time_period, 8));
-    }
-    if let Some(first_session) = selected_period(derived_summary, &ReportingPeriodKind::AllTime)
-        .and_then(|period| period.session_detail.first())
-    {
-        lines.push(String::new());
-        lines.push("Expanded Session Detail".to_owned());
-        lines.extend(render_expanded_session_detail_lines(first_session));
     }
     if !derived_summary.all_time_detail.is_empty() {
         lines.push(String::new());
@@ -404,18 +374,12 @@ fn summary_table(
     .style(matte_box_style())
 }
 
-/// Builds the Session Detail table or the focused Expanded Session Detail view.
+/// Builds the Session Detail table.
 fn session_panel(
     derived_summary: &DerivedSummary,
     terminal_interface_state: &TerminalInterfaceState,
     session_area: Rect,
 ) -> Table<'static> {
-    if terminal_interface_state.is_expanded_session_detail_open
-        && let Some(priced_session) = terminal_interface_state.selected_session(derived_summary)
-    {
-        return expanded_session_detail_table(priced_session);
-    }
-
     let maximum_visible_session_count = session_area.height.saturating_sub(4).max(1) as usize;
     Table::new(
         session_table_rows(
@@ -475,22 +439,6 @@ fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 8] 
     }
 
     column_widths.map(Constraint::Length)
-}
-
-fn expanded_session_detail_table(priced_session: &PricedCodexSession) -> Table<'static> {
-    let rows = render_expanded_session_detail_lines(priced_session)
-        .into_iter()
-        .map(|line| Row::new(vec![Cell::from(line)]))
-        .collect::<Vec<_>>();
-
-    Table::new(rows, [Constraint::Percentage(100)])
-        .block(
-            Block::default()
-                .title(Line::from(" Expanded Session Detail ").style(title_style()))
-                .borders(Borders::TOP)
-                .border_style(border_style()),
-        )
-        .style(matte_box_style())
 }
 
 /// Builds table rows for the currently selected Reporting Period.
@@ -610,7 +558,6 @@ fn footer_paragraph() -> Paragraph<'static> {
     Paragraph::new(Line::from(vec![
         Span::raw(" ↑/↓ move   "),
         Span::raw("←/→ period   "),
-        Span::raw("enter details   "),
         Span::raw("r reload   "),
         Span::raw("q quit"),
     ]))
@@ -640,89 +587,6 @@ pub fn render_session_detail_lines(
             compact_session_row(priced_session, project_name)
         })
         .collect()
-}
-
-/// Renders an expanded terminal detail view for one Codex Session.
-pub fn render_expanded_session_detail_lines(priced_session: &PricedCodexSession) -> Vec<String> {
-    let token_totals = &priced_session.codex_session.token_totals;
-    let project_path = priced_session
-        .codex_session
-        .project_path
-        .as_ref()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "(no project path)".to_owned());
-    let session_name = priced_session
-        .codex_session
-        .session_name
-        .as_deref()
-        .unwrap_or("(no session name)");
-    let price_schedule = priced_session
-        .price_schedule_match
-        .as_ref()
-        .map(|price_schedule_match| {
-            format!(
-                "{} effective {}",
-                price_schedule_match.model, price_schedule_match.effective_date
-            )
-        })
-        .unwrap_or_else(|| "no price schedule match".to_owned());
-
-    let mut lines = vec![
-        format!("Session Name: {session_name}"),
-        format!("Project Path: {project_path}"),
-        format!(
-            "AI Coding Agent: {}",
-            priced_session.codex_session.ai_coding_agent.label()
-        ),
-        format!(
-            "Model: {}",
-            priced_session.codex_session.compact_model_label()
-        ),
-        format!("Price Schedule: {price_schedule}"),
-    ];
-    lines.extend(price_schedule_rate_lines(
-        priced_session.price_schedule_match.as_ref(),
-    ));
-    lines.extend([
-        format!(
-            "Input Tokens: {}",
-            optional_token_count(token_totals.input_tokens)
-        ),
-        format!(
-            "Non-Cached Input Tokens: {}",
-            optional_token_count(token_totals.non_cached_input_tokens)
-        ),
-        format!(
-            "Cache Read Tokens: {}",
-            optional_token_count(token_totals.cache_read_tokens)
-        ),
-        format!(
-            "Cache Write Tokens: {}",
-            optional_token_count(token_totals.cache_write_tokens)
-        ),
-        format!(
-            "Output Tokens: {}",
-            optional_token_count(token_totals.output_tokens)
-        ),
-        format!(
-            "Reasoning Output Tokens: {}",
-            optional_token_count(token_totals.reasoning_output_tokens)
-        ),
-        format!(
-            "Total Tokens: {}",
-            optional_token_count(token_totals.total_tokens)
-        ),
-    ]);
-
-    match &priced_session.cost_state {
-        CostState::Complete { .. } => lines.push("Incomplete Reasons: none".to_owned()),
-        CostState::Partial { reasons, .. } | CostState::Incomplete { reasons } => {
-            lines.push(format!("Incomplete Reasons: {}", reasons.len()));
-            lines.extend(reasons.iter().map(|reason| format!("- {reason:?}")));
-        }
-    }
-
-    lines
 }
 
 fn render_headline_period_row(headline_period: &HeadlinePeriod) -> String {
@@ -843,12 +707,6 @@ fn previous_period_comparison_label(kind: &ReportingPeriodKind) -> &'static str 
     }
 }
 
-fn optional_token_count(token_count: Option<u64>) -> String {
-    token_count
-        .map(|token_count| token_count.to_string())
-        .unwrap_or_else(|| "unknown".to_owned())
-}
-
 /// Formats token counts with compact suffixes for table columns.
 fn compact_token_count(token_count: Option<u64>) -> String {
     let Some(token_count) = token_count else {
@@ -909,48 +767,6 @@ fn session_pricing_label(price_schedule_match: Option<&PriceScheduleMatch>) -> S
             price_schedule_match.output_tokens_per_million
         )
     )
-}
-
-fn price_schedule_rate_lines(price_schedule_match: Option<&PriceScheduleMatch>) -> Vec<String> {
-    let Some(price_schedule_match) = price_schedule_match else {
-        return Vec::new();
-    };
-    let reasoning_output_tokens_per_million = price_schedule_match
-        .reasoning_output_tokens_per_million
-        .unwrap_or(price_schedule_match.output_tokens_per_million);
-
-    vec![
-        format!(
-            "Input Tokens / Million: {}",
-            format_united_states_dollar_price_per_million_tokens(
-                price_schedule_match.input_tokens_per_million
-            )
-        ),
-        format!(
-            "Cache Read Tokens / Million: {}",
-            format_united_states_dollar_price_per_million_tokens(
-                price_schedule_match.cache_read_tokens_per_million
-            )
-        ),
-        format!(
-            "Cache Write Tokens / Million: {}",
-            format_united_states_dollar_price_per_million_tokens(
-                price_schedule_match.cache_write_tokens_per_million
-            )
-        ),
-        format!(
-            "Output Tokens / Million: {}",
-            format_united_states_dollar_price_per_million_tokens(
-                price_schedule_match.output_tokens_per_million
-            )
-        ),
-        format!(
-            "Reasoning Output Tokens / Million: {}",
-            format_united_states_dollar_price_per_million_tokens(
-                reasoning_output_tokens_per_million
-            )
-        ),
-    ]
 }
 
 fn format_united_states_dollar_price_per_million_tokens(
@@ -1116,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn session_detail_and_all_time_detail_render_newest_first_with_expanded_detail() {
+    fn session_detail_and_all_time_detail_render_newest_first() {
         let older_session = priced_session(
             "older",
             false,
@@ -1153,7 +969,6 @@ mod tests {
             .expect("all-time period");
 
         let session_detail = render_session_detail_lines(all_time_period, 10);
-        let expanded_detail = render_expanded_session_detail_lines(&newer_session);
 
         assert!(session_detail[0].contains("newer"));
         assert!(session_detail[0].contains("gpt-5.5"));
@@ -1162,51 +977,6 @@ mod tests {
         assert_eq!(
             derived_summary.all_time_detail[0].session_detail[0],
             newer_session
-        );
-        assert!(
-            expanded_detail
-                .iter()
-                .any(|line| line.contains("Session Name: newer session"))
-        );
-        assert!(
-            expanded_detail
-                .iter()
-                .any(|line| line.contains("Project Path: /tmp/newer"))
-        );
-        assert!(
-            expanded_detail
-                .iter()
-                .any(|line| line.contains("Price Schedule: gpt-5.5 effective 2026-01-01"))
-        );
-        assert!(
-            expanded_detail
-                .iter()
-                .any(|line| line.contains("Input Tokens / Million: $5.00"))
-        );
-        assert!(
-            expanded_detail
-                .iter()
-                .any(|line| line.contains("Cache Read Tokens / Million: $0.50"))
-        );
-        assert!(
-            expanded_detail
-                .iter()
-                .any(|line| line.contains("Output Tokens / Million: $30.00"))
-        );
-        assert!(
-            expanded_detail
-                .iter()
-                .any(|line| line.contains("Reasoning Output Tokens / Million: $30.00"))
-        );
-        assert!(
-            expanded_detail
-                .iter()
-                .any(|line| line.contains("Cache Read Tokens: 2"))
-        );
-        assert!(
-            expanded_detail
-                .iter()
-                .any(|line| line.contains("Incomplete Reasons: 1"))
         );
     }
 
@@ -1423,7 +1193,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_reload_and_quit_keys_have_terminal_actions() {
+    fn reload_and_quit_keys_have_terminal_actions() {
         let derived_summary = build_derived_summary_at(
             CurrentSourceState::Readable {
                 path: "source".into(),
@@ -1455,11 +1225,6 @@ mod tests {
         let mut terminal_interface_state = TerminalInterfaceState::new(&derived_summary);
 
         assert_eq!(
-            terminal_interface_state.handle_key_code(KeyCode::Enter, &derived_summary),
-            TerminalAction::Continue
-        );
-        assert!(terminal_interface_state.is_expanded_session_detail_open);
-        assert_eq!(
             terminal_interface_state.handle_key_code(KeyCode::Char('r'), &derived_summary),
             TerminalAction::Reload
         );
@@ -1467,7 +1232,6 @@ mod tests {
         terminal_interface_state.reconcile_with_summary(&reloaded_summary);
 
         assert_eq!(terminal_interface_state.selected_session_index, 0);
-        assert!(!terminal_interface_state.is_expanded_session_detail_open);
         assert_eq!(
             terminal_interface_state.handle_key_code(KeyCode::Char('q'), &reloaded_summary),
             TerminalAction::Quit
