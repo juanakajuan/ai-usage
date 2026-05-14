@@ -14,10 +14,10 @@ AI Usage is a Rust terminal application for understanding the United States doll
 ## Source Semantics
 
 - Treat local AI coding agent session files as the authoritative usage source.
-- Treat each session file as one session and preserve which AI coding agent produced it.
+- Treat each source-level session as one AI Coding Agent Session after source-specific parsing, and preserve which AI coding agent produced it.
 - Preserve source-recorded session names when available, without inferring names from prompt content.
 - Use the session start time for daily, weekly, monthly, and all-time grouping.
-- Use the final usable Codex token snapshot for Codex session totals; sum Pi and OpenCode assistant-message usage entries for their session totals.
+- Use the final usable Codex token snapshot for Codex Session totals; sum Pi and OpenCode assistant-message usage entries before they become AI Coding Agent Sessions.
 - Include active sessions with the latest available token snapshot and a visible active marker.
 - Skip unknown or malformed records, preserve partial results, and show data quality notices.
 - Never infer prompt content or estimate missing token counts from message text.
