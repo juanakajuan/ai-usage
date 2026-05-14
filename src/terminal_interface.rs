@@ -32,8 +32,8 @@ const MATTE_BOX_SUCCESS: Color = Color::Rgb(134, 174, 124);
 const MATTE_BOX_WARNING: Color = Color::Rgb(211, 151, 98);
 const MATTE_BOX_SELECTED_BACKGROUND: Color = Color::Rgb(37, 37, 34);
 const SESSION_TABLE_COLUMN_SPACING: u16 = 1;
-const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 9] = [6, 6, 7, 14, 14, 25, 7, 10, 12];
-const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 9] = [1, 1, 1, 5, 2, 1, 1, 2, 1];
+const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 8] = [6, 6, 7, 14, 25, 7, 10, 12];
+const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 8] = [1, 1, 1, 2, 1, 1, 2, 1];
 
 /// Terminal actions requested by keyboard input.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -432,7 +432,6 @@ fn session_panel(
             Cell::from("Status"),
             Cell::from("Agent"),
             Cell::from("Time"),
-            Cell::from("Session"),
             Cell::from("Model"),
             Cell::from("Price / Million"),
             Cell::from("Cost"),
@@ -452,7 +451,7 @@ fn session_panel(
 }
 
 /// Builds Session Detail table column widths that consume the full available panel width.
-fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 9] {
+fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 8] {
     let session_table_column_gap_count =
         SESSION_TABLE_MINIMUM_COLUMN_WIDTHS.len().saturating_sub(1) as u16;
     let spacing_width = SESSION_TABLE_COLUMN_SPACING * session_table_column_gap_count;
@@ -523,7 +522,6 @@ fn session_table_rows(
             Cell::from(""),
             Cell::from(""),
             Cell::from(""),
-            Cell::from(""),
         ])];
     }
 
@@ -555,7 +553,6 @@ fn session_table_rows(
                     .style(session_status_style(priced_session)),
                 Cell::from(priced_session.codex_session.ai_coding_agent.label()),
                 Cell::from(session_time_label(priced_session)),
-                Cell::from(session_name_label(priced_session)),
                 Cell::from(priced_session.codex_session.compact_model_label()),
                 Cell::from(session_pricing_label(
                     priced_session.price_schedule_match.as_ref(),
@@ -753,11 +750,10 @@ fn render_headline_period_row(headline_period: &HeadlinePeriod) -> String {
 
 fn compact_session_row(priced_session: &PricedCodexSession, project_name: &str) -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
+        "{:<6}  {:<6}  {:<7}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
         session_status_label(priced_session),
         priced_session.codex_session.ai_coding_agent.label(),
         session_time_label(priced_session),
-        session_name_label(priced_session),
         priced_session.codex_session.compact_model_label(),
         session_pricing_label(priced_session.price_schedule_match.as_ref()),
         session_cost_label(&priced_session.cost_state),
@@ -907,14 +903,6 @@ fn session_time_label(priced_session: &PricedCodexSession) -> String {
         .to_string()
 }
 
-fn session_name_label(priced_session: &PricedCodexSession) -> String {
-    priced_session
-        .codex_session
-        .session_name
-        .clone()
-        .unwrap_or_else(|| "(no name)".to_owned())
-}
-
 fn session_pricing_label(price_schedule_match: Option<&PriceScheduleMatch>) -> String {
     let Some(price_schedule_match) = price_schedule_match else {
         return "Unpriced".to_owned();
@@ -1021,26 +1009,17 @@ fn data_quality_summary_label(data_quality_notice_count: usize) -> String {
 
 fn session_table_header() -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
-        "Status",
-        "Agent",
-        "Time",
-        "Session",
-        "Model",
-        "Price / Million",
-        "Cost",
-        "Project",
-        "Tokens"
+        "{:<6}  {:<6}  {:<7}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
+        "Status", "Agent", "Time", "Model", "Price / Million", "Cost", "Project", "Tokens"
     )
 }
 
 fn session_table_separator() -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<14}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
+        "{:<6}  {:<6}  {:<7}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
         "──────",
         "──────",
         "───────",
-        "──────────────",
         "──────────────",
         "─────────────────────────",
         "───────",
@@ -1140,7 +1119,6 @@ mod tests {
         assert!(rendered_summary.contains("Data Quality: 1 notice"));
         assert!(rendered_summary.contains("● Act"));
         assert!(rendered_summary.contains("Session"));
-        assert!(rendered_summary.contains("active session"));
         assert!(rendered_summary.contains("Price / Million"));
         assert!(rendered_summary.contains("Input $5.00 Output $30.00"));
     }
@@ -1186,7 +1164,6 @@ mod tests {
         let expanded_detail = render_expanded_session_detail_lines(&newer_session);
 
         assert!(session_detail[0].contains("newer"));
-        assert!(session_detail[0].contains("newer session"));
         assert!(session_detail[0].contains("gpt-5.5"));
         assert!(session_detail[0].contains("Input $5.00 Output $30.00"));
         assert!(session_detail[0].contains("15 tokens"));
@@ -1253,8 +1230,8 @@ mod tests {
 
         assert_eq!(total_column_width + spacing_width, 140);
         assert!(
-            session_table_constraint_width(&constraints[3])
-                > SESSION_TABLE_MINIMUM_COLUMN_WIDTHS[3]
+            session_table_constraint_width(&constraints[4])
+                > SESSION_TABLE_MINIMUM_COLUMN_WIDTHS[4]
         );
     }
 
@@ -1302,13 +1279,11 @@ mod tests {
         let status_header_index = terminal_output.find("Status").expect("status header");
         let agent_header_index = terminal_output.find("Agent").expect("agent header");
         let time_header_index = terminal_output.find("Time").expect("time header");
-        let session_header_index = terminal_output.rfind("Session").expect("session header");
         let model_header_index = terminal_output.find("Model").expect("model header");
 
         assert!(status_header_index < agent_header_index);
         assert!(agent_header_index < time_header_index);
-        assert!(time_header_index < session_header_index);
-        assert!(session_header_index < model_header_index);
+        assert!(time_header_index < model_header_index);
     }
 
     #[test]
