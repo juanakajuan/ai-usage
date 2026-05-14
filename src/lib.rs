@@ -1,4 +1,4 @@
-//! Domain pipeline for deriving local Codex usage summaries.
+//! Domain pipeline for deriving local AI Coding Agent Usage summaries.
 
 pub mod application;
 pub mod cost;

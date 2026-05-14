@@ -12,11 +12,14 @@ use crate::price_catalog::PriceCatalog;
 use crate::reporting_period::{DerivedSummary, build_derived_summary};
 use crate::session::read_codex_sessions;
 use crate::terminal_interface::{render_terminal_summary, run_terminal_interface};
-use crate::usage_source::{UsageSourceResolution, resolve_usage_source};
+use crate::usage_source::{UsageSourceInventory, build_usage_source_inventory};
 
 /// Command-line options for one AI Usage run.
 #[derive(Debug, Parser)]
-#[command(name = "ai-usage", about = "Show local Codex usage cost summaries")]
+#[command(
+    name = "ai-usage",
+    about = "Show local AI coding agent usage cost summaries"
+)]
 pub struct RunOptions {
     /// Custom Usage Source path for this run.
     #[arg(long = "usage-source")]
@@ -34,8 +37,8 @@ pub struct RunOptions {
 /// Runs the application from process arguments.
 pub fn run() -> Result<(), Box<dyn Error>> {
     let run_options = RunOptions::parse();
-    let usage_source_resolution = resolve_usage_source(run_options.custom_usage_source.clone())?;
-    let derived_summary = derive_summary_from_resolution(&usage_source_resolution)?;
+    let custom_usage_source = run_options.custom_usage_source.clone();
+    let derived_summary = derive_summary_from_custom_usage_source(custom_usage_source.clone())?;
 
     if run_options.emit_json_output {
         let json_output = build_json_output(
@@ -49,8 +52,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     }
 
     if io::stdout().is_terminal() {
-        run_terminal_interface(derived_summary, || {
-            derive_summary_from_resolution(&usage_source_resolution)
+        run_terminal_interface(derived_summary, move || {
+            derive_summary_from_custom_usage_source(custom_usage_source.clone())
         })?;
     } else {
         println!("{}", render_terminal_summary(&derived_summary));
@@ -59,16 +62,24 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Builds the current Derived Summary from a resolved Usage Source.
-pub fn derive_summary_from_resolution(
-    usage_source_resolution: &UsageSourceResolution,
+/// Builds the current Derived Summary from Run Options.
+pub fn derive_summary_from_custom_usage_source(
+    custom_usage_source: Option<PathBuf>,
+) -> Result<DerivedSummary, Box<dyn Error>> {
+    let usage_source_inventory = build_usage_source_inventory(custom_usage_source)?;
+    derive_summary_from_inventory(&usage_source_inventory)
+}
+
+/// Builds the current Derived Summary from a Usage Source Inventory.
+pub fn derive_summary_from_inventory(
+    usage_source_inventory: &UsageSourceInventory,
 ) -> Result<DerivedSummary, Box<dyn Error>> {
     let price_catalog = PriceCatalog::bundled();
-    let parsed_usage = read_codex_sessions(usage_source_resolution)?;
+    let parsed_usage = read_codex_sessions(usage_source_inventory)?;
     let priced_sessions = price_sessions(parsed_usage.codex_sessions, &price_catalog);
 
     Ok(build_derived_summary(
-        usage_source_resolution.clone(),
+        usage_source_inventory.current_source_state.clone(),
         priced_sessions,
         parsed_usage.data_quality_notices,
     ))
@@ -90,13 +101,10 @@ mod tests {
         let first_session_path = temporary_directory.path().join("first.jsonl");
         let second_session_path = temporary_directory.path().join("second.jsonl");
         write_session_file(&first_session_path, "first", 10);
-        let usage_source_resolution = UsageSourceResolution::Readable {
-            path: temporary_directory.path().to_path_buf(),
-            is_custom: true,
-        };
 
         let first_summary =
-            derive_summary_from_resolution(&usage_source_resolution).expect("first summary");
+            derive_summary_from_custom_usage_source(Some(temporary_directory.path().to_path_buf()))
+                .expect("first summary");
 
         assert_eq!(all_time_session_count(&first_summary), 1);
 
@@ -104,7 +112,8 @@ mod tests {
         write_session_file(&second_session_path, "second", 20);
 
         let reloaded_summary =
-            derive_summary_from_resolution(&usage_source_resolution).expect("reloaded summary");
+            derive_summary_from_custom_usage_source(Some(temporary_directory.path().to_path_buf()))
+                .expect("reloaded summary");
 
         assert_eq!(all_time_session_count(&reloaded_summary), 1);
         assert_eq!(

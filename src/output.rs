@@ -10,7 +10,7 @@ use crate::reporting_period::{
     DerivedSummary, HeadlinePeriod, PeriodCostState, ReportingPeriodKind,
 };
 use crate::session::{DataQualityNoticeKind, TokenTotals};
-use crate::usage_source::UsageSourceResolution;
+use crate::usage_source::CurrentSourceState;
 
 /// Current JSON Output schema version.
 pub const OUTPUT_SCHEMA_VERSION: u32 = 3;
@@ -186,7 +186,7 @@ pub fn build_json_output(
     Ok(JsonOutput {
         output_schema_version: OUTPUT_SCHEMA_VERSION,
         usage_source: usage_source_json(
-            &derived_summary.usage_source_resolution,
+            &derived_summary.current_source_state,
             options.redact_paths,
             home_directory.as_deref(),
         ),
@@ -278,17 +278,17 @@ fn known_united_states_dollar_cost_change_from_previous_period_json(
 }
 
 fn usage_source_json(
-    usage_source_resolution: &UsageSourceResolution,
+    current_source_state: &CurrentSourceState,
     redact_paths: bool,
     home_directory: Option<&Path>,
 ) -> JsonUsageSource {
-    match usage_source_resolution {
-        UsageSourceResolution::Readable { path, is_custom } => JsonUsageSource {
+    match current_source_state {
+        CurrentSourceState::Readable { path, is_custom } => JsonUsageSource {
             path: path_json(path, redact_paths, home_directory),
             is_readable: true,
             is_custom: *is_custom,
         },
-        UsageSourceResolution::Missing { path, is_custom } => JsonUsageSource {
+        CurrentSourceState::Missing { path, is_custom } => JsonUsageSource {
             path: path_json(path, redact_paths, home_directory),
             is_readable: false,
             is_custom: *is_custom,
@@ -340,9 +340,11 @@ fn path_json(path: &Path, redact_paths: bool, home_directory: Option<&Path>) -> 
 
 fn path_separator_prefixed(path: &Path) -> String {
     let text = path.display().to_string();
-    (!text.is_empty())
-        .then(|| format!("/{text}"))
-        .unwrap_or_default()
+    if text.is_empty() {
+        String::new()
+    } else {
+        format!("/{text}")
+    }
 }
 
 fn reporting_period_kind_json(kind: &ReportingPeriodKind) -> &'static str {
@@ -458,7 +460,7 @@ mod tests {
             }),
         };
         let derived_summary = DerivedSummary {
-            usage_source_resolution: UsageSourceResolution::Readable {
+            current_source_state: CurrentSourceState::Readable {
                 path: source_path.parent().unwrap().to_path_buf(),
                 is_custom: false,
             },

@@ -24,6 +24,10 @@ _Avoid_: generic usage, session data, logs
 The authoritative location from which usage data is read.
 _Avoid_: import, export, provider
 
+**Usage Source Inventory**:
+The set of readable local artifacts discovered for one AI Usage run after applying default discovery or a Custom Usage Source.
+_Avoid_: source list, scan result, provider registry
+
 **Incomplete Usage**:
 Usage that cannot be priced accurately because required local token or pricing data is missing.
 _Avoid_: estimated usage, unknown usage
@@ -242,7 +246,9 @@ _Avoid_: app version, price catalog version
 
 ## Relationships
 
-- **Codex Usage** is read from exactly one **Usage Source** in the first version.
+- **AI Coding Agent Usage** is read from a **Usage Source Inventory** in the first version.
+- A **Usage Source Inventory** is built from default local AI coding agent locations, or from exactly one **Custom Usage Source** when provided.
+- A **Custom Usage Source** replaces default discovery for that run; no default or sibling usage sources are added.
 - **Incomplete Usage** must remain distinguishable from fully priceable usage.
 - **Historical Cost** can only be shown when both usage data and applicable historical pricing are known.
 - **Reporting Periods** use the local machine timezone, calendar days, Monday-start weeks, and calendar months.
@@ -422,7 +428,7 @@ _Avoid_: app version, price catalog version
 
 ## Flagged Ambiguities
 
-- "usage" can mean all artificial intelligence tools or only Codex; resolved: the first version tracks **Codex Usage** only.
+- "usage" can mean all artificial intelligence tools or local coding agents; resolved: the first version tracks local **AI Coding Agent Usage**.
 - "cost" can mean historical spend or current-price equivalent; resolved: canonical cost means **Historical Cost**.
 - "effective pricing" can mean usage-date pricing or latest known pricing; resolved: use the **Effective Price Schedule** for the **Session Start Time**.
 - "daily, weekly, monthly" can mean rolling windows or calendar ranges; resolved: they are local-calendar **Reporting Periods**.
@@ -441,7 +447,7 @@ _Avoid_: app version, price catalog version
 - "history" can mean preserved app history or currently available source data; resolved: v1 reflects **Current Source State** only.
 - "empty" can mean no source or no usage; resolved: **Missing Usage Source** and **Zero Usage** are separate states.
 - "source path" can mean auto-detected data or an explicit override; resolved: **Custom Usage Source** is an explicit local path for a run.
-- "Codex data" can mean history, logs, cache, or sessions; resolved: the default source is the **Codex Sessions Directory**.
+- "local AI coding agent data" can mean history, logs, cache, sessions, or app databases; resolved: the default source is a **Usage Source Inventory** built from local coding agent artifacts.
 - "configuration" can mean run-specific flags or persistent app preferences; resolved: v1 uses **Run Options** only.
 - "daily, weekly, monthly, and all-time" can mean separate screens or one summary; resolved: they are **Headline Periods** shown together.
 - "details" can mean session audit or raw log browsing; resolved: v1 shows **Session Detail**.

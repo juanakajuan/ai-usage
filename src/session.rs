@@ -8,9 +8,8 @@ use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use walkdir::WalkDir;
 
-use crate::usage_source::UsageSourceResolution;
+use crate::usage_source::{UsageSourceArtifactShape, UsageSourceInventory};
 
 /// Parsed usage and Data Quality Notices from a Usage Source.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -141,117 +140,54 @@ struct CodexRecord {
     payload: Value,
 }
 
-/// Reads AI Coding Agent Sessions from the resolved Usage Source.
+/// Reads AI Coding Agent Sessions from the Usage Source Inventory.
 pub fn read_codex_sessions(
-    usage_source_resolution: &UsageSourceResolution,
+    usage_source_inventory: &UsageSourceInventory,
 ) -> std::io::Result<ParsedUsage> {
     let mut parsed_usage = ParsedUsage::default();
 
-    let UsageSourceResolution::Readable { path, is_custom } = usage_source_resolution else {
+    if !usage_source_inventory.current_source_state.is_readable() {
         return Ok(parsed_usage);
     };
 
-    let session_file_paths = if *is_custom {
-        session_file_paths(path)?
-    } else {
-        default_session_file_paths(path)?
-    };
-
-    for source_path in session_file_paths {
-        match parse_session_file(&source_path) {
-            Ok((Some(codex_session), mut data_quality_notices)) => {
-                parsed_usage.codex_sessions.push(codex_session);
-                parsed_usage
-                    .data_quality_notices
-                    .append(&mut data_quality_notices);
-            }
-            Ok((None, mut data_quality_notices)) => parsed_usage
-                .data_quality_notices
-                .append(&mut data_quality_notices),
-            Err(error) => parsed_usage.data_quality_notices.push(DataQualityNotice {
-                source_path,
-                line_number: None,
-                kind: DataQualityNoticeKind::ParseProblem,
-                detail: error.to_string(),
-            }),
-        }
-    }
-
-    if !*is_custom || path.is_dir() {
-        let opencode_database_path = if *is_custom {
-            opencode_database_path(path)
-        } else {
-            opencode_database_path(&crate::usage_source::default_opencode_sessions_directory())
-        };
-        if fs::metadata(&opencode_database_path).is_ok() {
-            match parse_opencode_database(&opencode_database_path) {
-                Ok(mut opencode_sessions) => {
-                    parsed_usage.codex_sessions.append(&mut opencode_sessions);
+    for artifact in &usage_source_inventory.artifacts {
+        match artifact.shape {
+            UsageSourceArtifactShape::OpenCodeDatabase => {
+                match parse_opencode_database(&artifact.path) {
+                    Ok(mut opencode_sessions) => {
+                        parsed_usage.codex_sessions.append(&mut opencode_sessions);
+                    }
+                    Err(error) => parsed_usage.data_quality_notices.push(DataQualityNotice {
+                        source_path: artifact.path.clone(),
+                        line_number: None,
+                        kind: DataQualityNoticeKind::ParseProblem,
+                        detail: error.to_string(),
+                    }),
                 }
+            }
+            UsageSourceArtifactShape::JsonLinesSessionFile
+            | UsageSourceArtifactShape::JsonSessionFile => match parse_session_file(&artifact.path)
+            {
+                Ok((Some(codex_session), mut data_quality_notices)) => {
+                    parsed_usage.codex_sessions.push(codex_session);
+                    parsed_usage
+                        .data_quality_notices
+                        .append(&mut data_quality_notices);
+                }
+                Ok((None, mut data_quality_notices)) => parsed_usage
+                    .data_quality_notices
+                    .append(&mut data_quality_notices),
                 Err(error) => parsed_usage.data_quality_notices.push(DataQualityNotice {
-                    source_path: opencode_database_path,
+                    source_path: artifact.path.clone(),
                     line_number: None,
                     kind: DataQualityNoticeKind::ParseProblem,
                     detail: error.to_string(),
                 }),
-            }
+            },
         }
     }
 
     Ok(parsed_usage)
-}
-
-fn opencode_database_path(path: &Path) -> PathBuf {
-    if path
-        .file_name()
-        .is_some_and(|file_name| file_name == "opencode.db")
-    {
-        return path.to_path_buf();
-    }
-    path.join("opencode.db")
-}
-
-fn default_session_file_paths(path: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut file_paths = session_file_paths(path)?;
-    let pi_sessions_directory = crate::usage_source::default_pi_sessions_directory();
-    if pi_sessions_directory != path && fs::metadata(&pi_sessions_directory).is_ok() {
-        file_paths.extend(session_file_paths(&pi_sessions_directory)?);
-    }
-    let opencode_sessions_directory = crate::usage_source::default_opencode_sessions_directory();
-    if opencode_sessions_directory != path && fs::metadata(&opencode_sessions_directory).is_ok() {
-        file_paths.extend(session_file_paths(&opencode_sessions_directory)?);
-    }
-    file_paths.sort();
-    Ok(file_paths)
-}
-
-fn session_file_paths(path: &Path) -> std::io::Result<Vec<PathBuf>> {
-    if fs::metadata(path)?.is_file() {
-        return Ok(vec![path.to_path_buf()]);
-    }
-
-    let mut file_paths = WalkDir::new(path)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_file())
-        .map(|entry| entry.into_path())
-        .filter(|file_path| is_usage_file_path(file_path))
-        .collect::<Vec<_>>();
-    file_paths.sort();
-    Ok(file_paths)
-}
-
-fn is_usage_file_path(file_path: &Path) -> bool {
-    match file_path
-        .extension()
-        .and_then(|extension| extension.to_str())
-    {
-        Some("jsonl") => true,
-        Some("json") => file_path.components().any(|component| {
-            component.as_os_str() == "session" || component.as_os_str() == "message"
-        }),
-        _ => false,
-    }
 }
 
 fn parse_session_file(
@@ -600,16 +536,16 @@ fn parse_opencode_records(
     let mut saw_assistant_message = false;
 
     for record in records {
-        if is_opencode_metadata_record(&record) {
+        if is_opencode_metadata_record(record) {
             is_opencode_session = true;
-            session_start_time = opencode_created_time(&record).or(session_start_time);
+            session_start_time = opencode_created_time(record).or(session_start_time);
             session_name = source_recorded_session_name(record).or(session_name);
             session_last_modified_time =
-                opencode_last_modified_time(&record).or(session_last_modified_time);
-            project_path = opencode_project_path(&record).or(project_path);
+                opencode_last_modified_time(record).or(session_last_modified_time);
+            project_path = opencode_project_path(record).or(project_path);
         }
 
-        let message = record.get("message").unwrap_or(&record);
+        let message = record.get("message").unwrap_or(record);
         if opencode_message_role(message) == Some("assistant") {
             is_opencode_session = true;
             saw_assistant_message = true;
@@ -1031,11 +967,8 @@ mod tests {
             ],
         );
 
-        let parsed_usage = read_codex_sessions(&UsageSourceResolution::Readable {
-            path: temporary_directory.path().to_path_buf(),
-            is_custom: true,
-        })
-        .expect("parsed usage");
+        let parsed_usage = read_codex_sessions(&custom_inventory(temporary_directory.path()))
+            .expect("parsed usage");
 
         assert_eq!(parsed_usage.codex_sessions.len(), 1);
         let codex_session = &parsed_usage.codex_sessions[0];
@@ -1071,11 +1004,8 @@ mod tests {
             ],
         );
 
-        let parsed_usage = read_codex_sessions(&UsageSourceResolution::Readable {
-            path: session_file_path,
-            is_custom: true,
-        })
-        .expect("parsed usage");
+        let parsed_usage =
+            read_codex_sessions(&custom_inventory(&session_file_path)).expect("parsed usage");
 
         assert_eq!(
             parsed_usage.codex_sessions[0].token_totals.input_tokens,
@@ -1107,11 +1037,8 @@ mod tests {
             ],
         );
 
-        let parsed_usage = read_codex_sessions(&UsageSourceResolution::Readable {
-            path: session_file_path,
-            is_custom: true,
-        })
-        .expect("parsed usage");
+        let parsed_usage =
+            read_codex_sessions(&custom_inventory(&session_file_path)).expect("parsed usage");
 
         assert_eq!(parsed_usage.codex_sessions.len(), 1);
         let pi_session = &parsed_usage.codex_sessions[0];
@@ -1139,11 +1066,8 @@ mod tests {
         )
         .expect("OpenCode session file");
 
-        let parsed_usage = read_codex_sessions(&UsageSourceResolution::Readable {
-            path: session_file_path,
-            is_custom: true,
-        })
-        .expect("parsed usage");
+        let parsed_usage =
+            read_codex_sessions(&custom_inventory(&session_file_path)).expect("parsed usage");
 
         assert_eq!(parsed_usage.codex_sessions.len(), 1);
         let opencode_session = &parsed_usage.codex_sessions[0];
@@ -1216,11 +1140,8 @@ mod tests {
             )
             .expect("OpenCode schema and rows");
 
-        let parsed_usage = read_codex_sessions(&UsageSourceResolution::Readable {
-            path: temporary_directory.path().to_path_buf(),
-            is_custom: true,
-        })
-        .expect("parsed usage");
+        let parsed_usage = read_codex_sessions(&custom_inventory(temporary_directory.path()))
+            .expect("parsed usage");
 
         assert_eq!(parsed_usage.codex_sessions.len(), 1);
         let opencode_session = &parsed_usage.codex_sessions[0];
@@ -1262,7 +1183,8 @@ mod tests {
     #[test]
     fn default_source_includes_opencode_database_next_to_codex_sessions() {
         let temporary_home = tempfile::tempdir().expect("temporary home");
-        let codex_sessions_directory = temporary_home.path().join("codex-sessions");
+        let codex_home = temporary_home.path().join("codex-home");
+        let codex_sessions_directory = codex_home.join("sessions");
         let opencode_directory = temporary_home.path().join("opencode");
         fs::create_dir_all(&codex_sessions_directory).expect("Codex sessions directory");
         fs::create_dir_all(&opencode_directory).expect("OpenCode directory");
@@ -1278,15 +1200,14 @@ mod tests {
         write_opencode_database(&opencode_directory.join("opencode.db"));
 
         unsafe {
+            std::env::set_var("CODEX_HOME", &codex_home);
             std::env::set_var("PI_HOME", temporary_home.path().join("missing-pi"));
             std::env::set_var("OPENCODE_HOME", &opencode_directory);
         }
 
-        let parsed_usage = read_codex_sessions(&UsageSourceResolution::Readable {
-            path: codex_sessions_directory,
-            is_custom: false,
-        })
-        .expect("parsed usage");
+        let usage_source_inventory = crate::usage_source::build_usage_source_inventory(None)
+            .expect("usage source inventory");
+        let parsed_usage = read_codex_sessions(&usage_source_inventory).expect("parsed usage");
 
         assert_eq!(parsed_usage.codex_sessions.len(), 2);
         assert!(
@@ -1315,11 +1236,8 @@ mod tests {
             ],
         );
 
-        let parsed_usage = read_codex_sessions(&UsageSourceResolution::Readable {
-            path: session_file_path,
-            is_custom: true,
-        })
-        .expect("parsed usage");
+        let parsed_usage =
+            read_codex_sessions(&custom_inventory(&session_file_path)).expect("parsed usage");
 
         assert!(parsed_usage.codex_sessions.is_empty());
         assert_eq!(parsed_usage.data_quality_notices.len(), 3);
@@ -1335,6 +1253,11 @@ mod tests {
             parsed_usage.data_quality_notices[2].kind,
             DataQualityNoticeKind::MissingTokenSnapshot
         );
+    }
+
+    fn custom_inventory(path: &Path) -> UsageSourceInventory {
+        crate::usage_source::build_usage_source_inventory(Some(path.to_path_buf()))
+            .expect("usage source inventory")
     }
 
     fn write_session_file(path: &Path, lines: &[&str]) {

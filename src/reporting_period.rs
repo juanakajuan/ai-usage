@@ -7,13 +7,13 @@ use rust_decimal::Decimal;
 
 use crate::cost::{CostState, IncompleteCostReason, PricedCodexSession, known_cost};
 use crate::session::{DataQualityNotice, TokenTotals};
-use crate::usage_source::UsageSourceResolution;
+use crate::usage_source::CurrentSourceState;
 
 /// Cost-first usage view over all Headline Periods.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DerivedSummary {
     /// Current Source State used for this run.
-    pub usage_source_resolution: UsageSourceResolution,
+    pub current_source_state: CurrentSourceState,
     /// Daily, Weekly, Monthly, and All-Time Headline Periods.
     pub headline_periods: Vec<HeadlinePeriod>,
     /// Month-first All-Time Detail.
@@ -91,12 +91,12 @@ pub struct MonthlySessionGroup {
 
 /// Builds a Derived Summary from the Current Source State.
 pub fn build_derived_summary(
-    usage_source_resolution: UsageSourceResolution,
+    current_source_state: CurrentSourceState,
     priced_sessions: Vec<PricedCodexSession>,
     data_quality_notices: Vec<DataQualityNotice>,
 ) -> DerivedSummary {
     build_derived_summary_at(
-        usage_source_resolution,
+        current_source_state,
         priced_sessions,
         data_quality_notices,
         Local::now(),
@@ -105,7 +105,7 @@ pub fn build_derived_summary(
 
 /// Builds a Derived Summary using an explicit current local time.
 pub fn build_derived_summary_at(
-    usage_source_resolution: UsageSourceResolution,
+    current_source_state: CurrentSourceState,
     priced_sessions: Vec<PricedCodexSession>,
     data_quality_notices: Vec<DataQualityNotice>,
     current_local_time: DateTime<Local>,
@@ -127,7 +127,7 @@ pub fn build_derived_summary_at(
             Some(today),
             Some(previous_day),
             Some(previous_day),
-            &usage_source_resolution,
+            &current_source_state,
             &priced_sessions,
         ),
         period(
@@ -136,7 +136,7 @@ pub fn build_derived_summary_at(
             Some(week_start + Duration::days(6)),
             Some(previous_week_start),
             Some(week_start - Duration::days(1)),
-            &usage_source_resolution,
+            &current_source_state,
             &priced_sessions,
         ),
         period(
@@ -145,7 +145,7 @@ pub fn build_derived_summary_at(
             None,
             Some(previous_month_start),
             Some(previous_month_end),
-            &usage_source_resolution,
+            &current_source_state,
             &priced_sessions,
         ),
         period(
@@ -154,13 +154,13 @@ pub fn build_derived_summary_at(
             None,
             None,
             None,
-            &usage_source_resolution,
+            &current_source_state,
             &priced_sessions,
         ),
     ];
 
     DerivedSummary {
-        usage_source_resolution,
+        current_source_state,
         headline_periods,
         all_time_detail: all_time_detail(&priced_sessions),
         data_quality_notices,
@@ -173,7 +173,7 @@ fn period(
     local_end_date: Option<NaiveDate>,
     previous_local_start_date: Option<NaiveDate>,
     previous_local_end_date: Option<NaiveDate>,
-    usage_source_resolution: &UsageSourceResolution,
+    current_source_state: &CurrentSourceState,
     priced_sessions: &[PricedCodexSession],
 ) -> HeadlinePeriod {
     let mut session_detail = priced_sessions
@@ -185,12 +185,12 @@ fn period(
         .collect::<Vec<_>>();
 
     sort_newest_first(&mut session_detail);
-    let summary_totals = summary_totals(usage_source_resolution, &session_detail);
+    let summary_totals = summary_totals(current_source_state, &session_detail);
     let previous_period_known_united_states_dollar_cost =
         previous_period_known_united_states_dollar_cost(
             previous_local_start_date,
             previous_local_end_date,
-            usage_source_resolution,
+            current_source_state,
             priced_sessions,
         );
 
@@ -207,10 +207,10 @@ fn period(
 fn previous_period_known_united_states_dollar_cost(
     previous_local_start_date: Option<NaiveDate>,
     previous_local_end_date: Option<NaiveDate>,
-    usage_source_resolution: &UsageSourceResolution,
+    current_source_state: &CurrentSourceState,
     priced_sessions: &[PricedCodexSession],
 ) -> Option<Decimal> {
-    if !usage_source_resolution.is_readable() {
+    if !current_source_state.is_readable() {
         return None;
     }
 
@@ -254,7 +254,7 @@ fn session_matches_reporting_period(
 }
 
 fn summary_totals(
-    usage_source_resolution: &UsageSourceResolution,
+    current_source_state: &CurrentSourceState,
     session_detail: &[PricedCodexSession],
 ) -> SummaryTotals {
     let token_totals =
@@ -272,7 +272,7 @@ fn summary_totals(
         .iter()
         .flat_map(|priced_session| incomplete_reasons(&priced_session.cost_state))
         .collect::<Vec<_>>();
-    let period_cost_state = if !usage_source_resolution.is_readable() {
+    let period_cost_state = if !current_source_state.is_readable() {
         PeriodCostState::MissingUsageSource
     } else if session_detail.is_empty() {
         PeriodCostState::ZeroUsage
@@ -406,7 +406,7 @@ mod tests {
         ];
 
         let derived_summary = build_derived_summary_at(
-            UsageSourceResolution::Readable {
+            CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },
@@ -481,7 +481,7 @@ mod tests {
     fn empty_readable_period_is_zero_usage_and_missing_source_is_missing() {
         let current_local_time = Local.with_ymd_and_hms(2026, 5, 10, 12, 0, 0).unwrap();
         let empty_summary = build_derived_summary_at(
-            UsageSourceResolution::Readable {
+            CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },
@@ -490,7 +490,7 @@ mod tests {
             current_local_time,
         );
         let missing_summary = build_derived_summary_at(
-            UsageSourceResolution::Missing {
+            CurrentSourceState::Missing {
                 path: "source".into(),
                 is_custom: false,
             },
@@ -550,7 +550,7 @@ mod tests {
         );
 
         let derived_summary = build_derived_summary_at(
-            UsageSourceResolution::Readable {
+            CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },

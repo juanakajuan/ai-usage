@@ -1062,12 +1062,12 @@ mod tests {
     use crate::session::{
         AiCodingAgent, CodexSession, DataQualityNotice, DataQualityNoticeKind, TokenTotals,
     };
-    use crate::usage_source::UsageSourceResolution;
+    use crate::usage_source::CurrentSourceState;
 
     #[test]
     fn terminal_summary_renders_headline_tokens_cost_changes_and_data_quality() {
         let derived_summary = DerivedSummary {
-            usage_source_resolution: UsageSourceResolution::Readable {
+            current_source_state: CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },
@@ -1168,7 +1168,7 @@ mod tests {
             .with_ymd_and_hms(2026, 5, 10, 12, 0, 0)
             .unwrap();
         let derived_summary = build_derived_summary_at(
-            UsageSourceResolution::Readable {
+            CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },
@@ -1261,7 +1261,7 @@ mod tests {
     #[test]
     fn session_table_has_ai_coding_agent_column_header() {
         let derived_summary = build_derived_summary_at(
-            UsageSourceResolution::Readable {
+            CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },
@@ -1314,7 +1314,7 @@ mod tests {
     #[test]
     fn session_table_renders_full_price_label_at_standard_terminal_width() {
         let derived_summary = build_derived_summary_at(
-            UsageSourceResolution::Readable {
+            CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },
@@ -1388,7 +1388,7 @@ mod tests {
     #[test]
     fn keyboard_navigation_supports_arrows_and_terminal_native_keys() {
         let derived_summary = build_derived_summary_at(
-            UsageSourceResolution::Readable {
+            CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },
@@ -1450,7 +1450,7 @@ mod tests {
     #[test]
     fn enter_reload_and_quit_keys_have_terminal_actions() {
         let derived_summary = build_derived_summary_at(
-            UsageSourceResolution::Readable {
+            CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },
@@ -1467,7 +1467,7 @@ mod tests {
                 .unwrap(),
         );
         let reloaded_summary = build_derived_summary_at(
-            UsageSourceResolution::Readable {
+            CurrentSourceState::Readable {
                 path: "source".into(),
                 is_custom: false,
             },
