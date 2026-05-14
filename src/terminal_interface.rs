@@ -32,8 +32,8 @@ const MATTE_BOX_SUCCESS: Color = Color::Rgb(134, 174, 124);
 const MATTE_BOX_WARNING: Color = Color::Rgb(211, 151, 98);
 const MATTE_BOX_SELECTED_BACKGROUND: Color = Color::Rgb(37, 37, 34);
 const SESSION_TABLE_COLUMN_SPACING: u16 = 1;
-const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 8] = [6, 6, 7, 14, 25, 7, 10, 12];
-const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 8] = [1, 1, 1, 2, 1, 1, 2, 1];
+const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 8] = [6, 7, 10, 6, 14, 7, 25, 12];
+const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 8] = [1, 1, 2, 1, 2, 1, 1, 1];
 
 /// Terminal actions requested by keyboard input.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -430,12 +430,12 @@ fn session_panel(
     .header(
         Row::new(vec![
             Cell::from("Status"),
-            Cell::from("Agent"),
             Cell::from("Time"),
-            Cell::from("Model"),
-            Cell::from("Price / Million"),
-            Cell::from("Cost"),
             Cell::from("Project"),
+            Cell::from("Agent"),
+            Cell::from("Model"),
+            Cell::from("Cost"),
+            Cell::from("Price / Million"),
             Cell::from("Tokens"),
         ])
         .style(header_style())
@@ -551,14 +551,14 @@ fn session_table_rows(
             Row::new(vec![
                 Cell::from(session_status_label(priced_session))
                     .style(session_status_style(priced_session)),
-                Cell::from(priced_session.codex_session.ai_coding_agent.label()),
                 Cell::from(session_time_label(priced_session)),
+                Cell::from(project_name.to_owned()),
+                Cell::from(priced_session.codex_session.ai_coding_agent.label()),
                 Cell::from(priced_session.codex_session.compact_model_label()),
+                Cell::from(session_cost_label(&priced_session.cost_state)),
                 Cell::from(session_pricing_label(
                     priced_session.price_schedule_match.as_ref(),
                 )),
-                Cell::from(session_cost_label(&priced_session.cost_state)),
-                Cell::from(project_name.to_owned()),
                 Cell::from(format!(
                     "{} tokens",
                     compact_token_count(priced_session.codex_session.token_totals.total_tokens)
@@ -750,14 +750,14 @@ fn render_headline_period_row(headline_period: &HeadlinePeriod) -> String {
 
 fn compact_session_row(priced_session: &PricedCodexSession, project_name: &str) -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
+        "{:<6}  {:<7}  {:<10}  {:<6}  {:<14}  {:>7}  {:<25}  {:>14}",
         session_status_label(priced_session),
-        priced_session.codex_session.ai_coding_agent.label(),
         session_time_label(priced_session),
-        priced_session.codex_session.compact_model_label(),
-        session_pricing_label(priced_session.price_schedule_match.as_ref()),
-        session_cost_label(&priced_session.cost_state),
         project_name,
+        priced_session.codex_session.ai_coding_agent.label(),
+        priced_session.codex_session.compact_model_label(),
+        session_cost_label(&priced_session.cost_state),
+        session_pricing_label(priced_session.price_schedule_match.as_ref()),
         format!(
             "{} tokens",
             compact_token_count(priced_session.codex_session.token_totals.total_tokens)
@@ -1009,21 +1009,21 @@ fn data_quality_summary_label(data_quality_notice_count: usize) -> String {
 
 fn session_table_header() -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
-        "Status", "Agent", "Time", "Model", "Price / Million", "Cost", "Project", "Tokens"
+        "{:<6}  {:<7}  {:<10}  {:<6}  {:<14}  {:>7}  {:<25}  {:>14}",
+        "Status", "Time", "Project", "Agent", "Model", "Cost", "Price / Million", "Tokens"
     )
 }
 
 fn session_table_separator() -> String {
     format!(
-        "{:<6}  {:<6}  {:<7}  {:<14}  {:<25}  {:>7}  {:<10}  {:>14}",
+        "{:<6}  {:<7}  {:<10}  {:<6}  {:<14}  {:>7}  {:<25}  {:>14}",
         "──────",
-        "──────",
-        "───────",
-        "──────────────",
-        "─────────────────────────",
         "───────",
         "──────────",
+        "──────",
+        "──────────────",
+        "───────",
+        "─────────────────────────",
         "──────────────"
     )
 }
@@ -1277,13 +1277,23 @@ mod tests {
             .collect::<String>();
 
         let status_header_index = terminal_output.find("Status").expect("status header");
-        let agent_header_index = terminal_output.find("Agent").expect("agent header");
         let time_header_index = terminal_output.find("Time").expect("time header");
+        let project_header_index = terminal_output.find("Project").expect("project header");
+        let agent_header_index = terminal_output.find("Agent").expect("agent header");
         let model_header_index = terminal_output.find("Model").expect("model header");
+        let cost_header_index = terminal_output.find("Cost").expect("cost header");
+        let price_header_index = terminal_output
+            .find("Price / Million")
+            .expect("price header");
+        let tokens_header_index = terminal_output.find("Tokens").expect("tokens header");
 
-        assert!(status_header_index < agent_header_index);
-        assert!(agent_header_index < time_header_index);
-        assert!(time_header_index < model_header_index);
+        assert!(status_header_index < time_header_index);
+        assert!(time_header_index < project_header_index);
+        assert!(project_header_index < agent_header_index);
+        assert!(agent_header_index < model_header_index);
+        assert!(model_header_index < cost_header_index);
+        assert!(cost_header_index < price_header_index);
+        assert!(price_header_index < tokens_header_index);
     }
 
     #[test]
