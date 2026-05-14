@@ -33,7 +33,6 @@ const MATTE_BOX_WARNING: Color = Color::Rgb(211, 151, 98);
 const MATTE_BOX_SELECTED_BACKGROUND: Color = Color::Rgb(37, 37, 34);
 const SESSION_TABLE_COLUMN_SPACING: u16 = 1;
 const SESSION_TABLE_MINIMUM_COLUMN_WIDTHS: [u16; 8] = [6, 7, 10, 6, 14, 7, 25, 12];
-const SESSION_TABLE_EXTRA_WIDTH_WEIGHTS: [u16; 8] = [1, 1, 2, 1, 2, 1, 1, 1];
 
 /// Terminal actions requested by keyboard input.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -462,24 +461,17 @@ fn session_table_column_constraints(session_area_width: u16) -> [Constraint; 8] 
         return SESSION_TABLE_MINIMUM_COLUMN_WIDTHS.map(Constraint::Length);
     }
 
-    let mut column_widths = SESSION_TABLE_MINIMUM_COLUMN_WIDTHS;
-    let mut remaining_extra_width = available_column_width - minimum_column_width;
-    let mut remaining_extra_width_weight: u16 =
-        SESSION_TABLE_EXTRA_WIDTH_WEIGHTS.iter().copied().sum();
+    let column_count = SESSION_TABLE_MINIMUM_COLUMN_WIDTHS.len() as u16;
+    let extra_width = available_column_width - minimum_column_width;
+    let shared_extra_width = extra_width / column_count;
+    let remaining_extra_width = extra_width % column_count;
 
-    for (column_width, extra_width_weight) in column_widths
-        .iter_mut()
-        .zip(SESSION_TABLE_EXTRA_WIDTH_WEIGHTS)
-    {
-        let column_extra_width = if remaining_extra_width_weight == 0 {
-            0
-        } else {
-            ((u32::from(remaining_extra_width) * u32::from(extra_width_weight))
-                / u32::from(remaining_extra_width_weight)) as u16
-        };
-        *column_width += column_extra_width;
-        remaining_extra_width -= column_extra_width;
-        remaining_extra_width_weight -= extra_width_weight;
+    let mut column_widths = SESSION_TABLE_MINIMUM_COLUMN_WIDTHS;
+    for (column_index, column_width) in column_widths.iter_mut().enumerate() {
+        *column_width += shared_extra_width;
+        if (column_index as u16) < remaining_extra_width {
+            *column_width += 1;
+        }
     }
 
     column_widths.map(Constraint::Length)
@@ -1221,18 +1213,16 @@ mod tests {
     #[test]
     fn session_table_columns_use_full_available_width() {
         let constraints = session_table_column_constraints(140);
-        let total_column_width = constraints
+        let column_widths = constraints
             .iter()
             .map(session_table_constraint_width)
-            .sum::<u16>();
+            .collect::<Vec<_>>();
+        let total_column_width = column_widths.iter().sum::<u16>();
         let spacing_width =
             SESSION_TABLE_COLUMN_SPACING * (constraints.len().saturating_sub(1) as u16);
 
         assert_eq!(total_column_width + spacing_width, 140);
-        assert!(
-            session_table_constraint_width(&constraints[4])
-                > SESSION_TABLE_MINIMUM_COLUMN_WIDTHS[4]
-        );
+        assert_eq!(column_widths, vec![12, 13, 16, 12, 20, 13, 30, 17]);
     }
 
     #[test]
