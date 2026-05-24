@@ -901,9 +901,9 @@ fn token_totals_from_info(info: &Value) -> Option<TokenTotals> {
     })
 }
 
-/// Maps Codex model configuration values onto bundled pricing model identifiers.
-fn codex_model_with_configuration(model: String, reasoning_effort: Option<&str>) -> String {
-    if model == "gpt-5.5" && reasoning_effort == Some("low") {
+/// Maps Codex records onto bundled pricing model identifiers.
+fn codex_model_with_configuration(model: String, _reasoning_effort: Option<&str>) -> String {
+    if model == "gpt-5.5" {
         return "gpt-5.5-fast".to_owned();
     }
 
@@ -989,9 +989,9 @@ mod tests {
             codex_session.session_name.as_deref(),
             Some("Implement Session Name")
         );
-        assert_eq!(codex_session.model, "gpt-5.5");
+        assert_eq!(codex_session.model, "gpt-5.5-fast");
         assert_eq!(codex_session.reasoning_effort.as_deref(), Some("medium"));
-        assert_eq!(codex_session.compact_model_label(), "gpt-5.5 · medium");
+        assert_eq!(codex_session.compact_model_label(), "gpt-5.5-fast · medium");
         assert_eq!(codex_session.project_name.as_deref(), Some("project"));
         assert!(!codex_session.is_active);
         assert_eq!(
@@ -1003,14 +1003,14 @@ mod tests {
     }
 
     #[test]
-    fn codex_fast_mode_uses_fast_model_display_and_pricing_identifier() {
+    fn codex_sessions_assume_fast_model_display_and_pricing_identifier() {
         let temporary_directory = tempfile::tempdir().expect("temporary directory");
         let session_file_path = temporary_directory.path().join("session.jsonl");
         write_session_file(
             &session_file_path,
             &[
                 r#"{"timestamp":"2026-05-10T10:00:00Z","type":"session_meta","payload":{"timestamp":"2026-05-10T09:59:00Z","cwd":"/home/person/project"}}"#,
-                r#"{"timestamp":"2026-05-10T10:00:01Z","type":"turn_context","payload":{"model":"gpt-5.5","effort":"low","collaboration_mode":{"settings":{"model":"gpt-5.5","reasoning_effort":"low"}}}}"#,
+                r#"{"timestamp":"2026-05-10T10:00:01Z","type":"turn_context","payload":{"model":"gpt-5.5"}}"#,
                 r#"{"timestamp":"2026-05-10T10:00:03Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"output_tokens":300,"total_tokens":1300}}}}"#,
             ],
         );
@@ -1020,8 +1020,8 @@ mod tests {
 
         let codex_session = &parsed_usage.codex_sessions[0];
         assert_eq!(codex_session.model, "gpt-5.5-fast");
-        assert_eq!(codex_session.reasoning_effort.as_deref(), Some("low"));
-        assert_eq!(codex_session.compact_model_label(), "gpt-5.5-fast · low");
+        assert_eq!(codex_session.reasoning_effort, None);
+        assert_eq!(codex_session.compact_model_label(), "gpt-5.5-fast");
     }
 
     #[test]

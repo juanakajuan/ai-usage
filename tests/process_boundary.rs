@@ -93,7 +93,7 @@ fn non_interactive_terminal_startup_renders_summary_smoke_output() {
     assert!(terminal_output.contains("AI Usage"));
     assert!(terminal_output.contains("Sessions"));
     assert!(terminal_output.contains("Price / Million"));
-    assert!(terminal_output.contains("Input $5.00 Output $30.00"));
+    assert!(terminal_output.contains("Input $12.50 Output $75.00"));
     assert!(terminal_output.contains("15 tokens"));
 }
 

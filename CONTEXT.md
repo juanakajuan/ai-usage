@@ -271,7 +271,8 @@ _Avoid_: app version, price catalog version
 - **Unpriced Usage** is a form of **Incomplete Usage**.
 - **Reasoning Output Tokens** are preserved as detail and priced as **Output Tokens** unless a price schedule distinguishes them.
 - A **Model** must preserve the exact name recorded by the AI coding agent.
-- **Model Configuration** is shown only when the source records it; AI Usage must not infer fast mode or thinking level from the Model name.
+- **Model Configuration** is shown only when the source records it; AI Usage must not infer thinking level from the Model name.
+- **Codex Usage** for `gpt-5.5` uses the Fast mode **Price Schedule** because the local Codex source does not expose whether Fast mode was active and the current user assumes Fast mode by default.
 - **Compact Model Display** may append Model Configuration to the Model in Session Detail without changing the Model used for pricing.
 - **Price Schedules** come from the app's local **Price Catalog** in the first version.
 - **Historical Cost** is displayed as **United States Dollar Cost** in the first version.

@@ -32,6 +32,7 @@ AI Usage is a Rust terminal application for understanding the United States doll
 ## Cost Semantics
 
 - Calculate historical cost from the price schedule effective at the session start time.
+- Price Codex `gpt-5.5` usage with the Fast mode price schedule when Codex does not expose the active mode.
 - Use United States dollars only.
 - Keep calculation precision through aggregation and round only display values.
 - Show a known partial cost with an incomplete marker when a period includes unpriced or incomplete usage.
